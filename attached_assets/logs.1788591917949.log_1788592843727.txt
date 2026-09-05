@@ -1,0 +1,131 @@
+2026-09-05T06:54:33.898528042Z [inf]  unpacking archive
+2026-09-05T06:54:34.076642009Z [inf]  using build driver railpack-v0.39.0
+2026-09-05T06:54:34.079543836Z [inf]  uploading snapshot
+2026-09-05T06:54:34.288046637Z [inf]  [railway] prepare railpack-v0.39.0
+2026-09-05T06:54:34.288049211Z [inf]  local://prepare-driver
+2026-09-05T06:54:34.288050183Z [inf]  local://prepare-context
+2026-09-05T06:54:34.288051254Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:latest
+2026-09-05T06:54:34.288308340Z [inf]  local://prepare-driver
+2026-09-05T06:54:34.288309532Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:latest
+2026-09-05T06:54:34.288310113Z [inf]  local://prepare-context
+2026-09-05T06:54:34.311809133Z [inf]  local://prepare-context
+2026-09-05T06:54:34.311817515Z [inf]  local://prepare-driver
+2026-09-05T06:54:34.346977872Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:latest
+2026-09-05T06:54:34.382707975Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:mise-2026.8.16
+2026-09-05T06:54:34.382923759Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:mise-2026.8.16
+2026-09-05T06:54:34.491483313Z [inf]  local://prepare-driver
+2026-09-05T06:54:34.630074123Z [inf]  local://prepare-context
+2026-09-05T06:54:34.652418990Z [inf]  [railway] prepare railpack-v0.39.0
+2026-09-05T06:54:35.203066664Z [inf]  scheduling build on Metal builder "builder-ydmrnp"
+2026-09-05T06:54:36.524637707Z [inf]                     
+[38;2;125;86;243m╭─────────────────╮[0m
+[38;2;125;86;243m│[0m Railpack 0.39.0 [38;2;125;86;243m│[0m
+[38;2;125;86;243m╰─────────────────╯[0m
+
+  [33m⚠ Package-lock.json detected, assuming npm[0m
+  [36m→ Specify the package manager and version explicitly[0m [4;94;4mh[0m[4;94;4mt[0m[4;94;4mt[0m[4;94;4mp[0m[4;94;4ms[0m[4;94;4m:[0m[4;94;4m/[0m[4;94;4m/[0m[4;94;4mr[0m[4;94;4ma[0m[4;94;4mi[0m[4;94;4ml[0m[4;94;4mp[0m[4;94;4ma[0m[4;94;4mc[0m[4;94;4mk[0m[4;94;4m.[0m[4;94;4mc[0m[4;94;4mo[0m[4;94;4mm[0m[4;94;4m/[0m[4;94;4mc[0m[4;94;4mo[0m[4;94;4mn[0m[4;94;4mf[0m[4;94;4mi[0m[4;94;4mg[0m[4;94;4m/[0m[4;94;4mr[0m[4;94;4me[0m[4;94;4mc[0m[4;94;4mo[0m[4;94;4mm[0m[4;94;4mm[0m[4;94;4me[0m[4;94;4mn[0m[4;94;4md[0m[4;94;4ma[0m[4;94;4mt[0m[4;94;4mi[0m[4;94;4mo[0m[4;94;4mn[0m[4;94;4ms[0m[4;94;4m#[0m[4;94;4ms[0m[4;94;4mp[0m[4;94;4me[0m[4;94;4mc[0m[4;94;4mi[0m[4;94;4mf[0m[4;94;4my[0m[4;94;4m-[0m[4;94;4mt[0m[4;94;4mh[0m[4;94;4me[0m[4;94;4m-[0m[4;94;4mn[0m[4;94;4mo[0m[4;94;4md[0m[4;94;4me[0m[4;94;4m-[0m[4;94;4mp[0m[4;94;4ma[0m[4;94;4mc[0m[4;94;4mk[0m[4;94;4ma[0m[4;94;4mg[0m[4;94;4me[0m[4;94;4m-[0m[4;94;4mm[0m[4;94;4ma[0m[4;94;4mn[0m[4;94;4ma[0m[4;94;4mg[0m[4;94;4me[0m[4;94;4mr[0m[4;94;4m-[0m[4;94;4mv[0m[4;94;4me[0m[4;94;4mr[0m[4;94;4ms[0m[4;94;4mi[0m[4;94;4mo[0m[4;94;4mn[0m
+  [97m↳ Detected Node[0m
+  [97m↳ Using npm package manager[0m
+  [97m↳ Deploying as vite static site[0m
+  [97m↳ Output directory: dist[0m
+            
+  [1mPackages[0m  
+  [38;5;238m──────────[0m
+  [95mnode[0m   [38;5;238m│[0m  [96m24.19.0[0m  [38;5;238m│[0m  railpack default (lts)
+  [95mcaddy[0m  [38;5;238m│[0m  [96m2.11.4[0m   [38;5;238m│[0m  railpack default (latest)
+            
+  [1mSteps[0m     
+  [38;5;238m──────────[0m
+  [95m▸ install[0m
+    [38;5;245m$[0m [1mnpm install[0m
+         
+  [95m▸ build[0m
+    [38;5;245m$[0m [1mnpm run build[0m
+         
+  [95m▸ caddy[0m
+    [38;5;245m$[0m [1mcaddy fmt --overwrite /Caddyfile[0m
+            
+  [1mDeploy[0m    
+  [38;5;238m──────────[0m
+    [38;5;245m$[0m [1mcaddy run --config /Caddyfile --adapter caddyfile 2>&1[0m
+
+
+2026-09-05T06:54:36.919592665Z [inf]  [railway] prepare railpack-v0.39.0
+2026-09-05T06:54:37.168186296Z [inf]  resolve image config for docker-image://ghcr.io/railwayapp/railpack-frontend:v0.39.0
+2026-09-05T06:54:37.218671270Z [inf]  resolve image config for docker-image://ghcr.io/railwayapp/railpack-frontend:v0.39.0
+2026-09-05T06:54:37.219023069Z [inf]  docker-image://ghcr.io/railwayapp/railpack-frontend:v0.39.0@sha256:db24dc37640b6887c3d455b40876ea30f75182964479670cba6e4cde7ffef103
+2026-09-05T06:54:37.219031621Z [inf]  docker-image://ghcr.io/railwayapp/railpack-frontend:v0.39.0@sha256:db24dc37640b6887c3d455b40876ea30f75182964479670cba6e4cde7ffef103
+2026-09-05T06:54:37.235537552Z [inf]  docker-image://ghcr.io/railwayapp/railpack-frontend:v0.39.0@sha256:db24dc37640b6887c3d455b40876ea30f75182964479670cba6e4cde7ffef103
+2026-09-05T06:54:37.271922898Z [inf]  docker-image://ghcr.io/railwayapp/railpack-frontend:v0.39.0@sha256:db24dc37640b6887c3d455b40876ea30f75182964479670cba6e4cde7ffef103
+2026-09-05T06:54:37.477060678Z [inf]  load build definition from ./railpack-plan.json
+2026-09-05T06:54:37.477223102Z [inf]  load build definition from ./railpack-plan.json
+2026-09-05T06:54:37.477548721Z [inf]  load build definition from ./railpack-plan.json
+2026-09-05T06:54:37.579956669Z [inf]  load build definition from ./railpack-plan.json
+2026-09-05T06:54:37.654320764Z [inf]  install mise packages: node
+2026-09-05T06:54:37.654323097Z [inf]  create mise config
+2026-09-05T06:54:37.654325080Z [inf]  mkdir /etc/mise
+2026-09-05T06:54:37.654325751Z [inf]  copy /Caddyfile
+2026-09-05T06:54:37.654326402Z [inf]  caddy fmt --overwrite /Caddyfile
+2026-09-05T06:54:37.654327183Z [inf]  loading .
+2026-09-05T06:54:37.654328275Z [inf]  mkfile /Caddyfile
+2026-09-05T06:54:37.654329356Z [inf]  copy /railpack/caddy
+2026-09-05T06:54:37.654330468Z [inf]  mise install-into caddy@2.11.4 /railpack/caddy
+2026-09-05T06:54:37.654331330Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:mise-2026.8.16
+2026-09-05T06:54:37.654332601Z [inf]  install apt packages: libatomic1
+2026-09-05T06:54:37.654333273Z [inf]  mkdir -p /app/node_modules/.cache
+2026-09-05T06:54:37.654334064Z [inf]  copy package-lock.json
+2026-09-05T06:54:37.654334675Z [inf]  docker-image://ghcr.io/railwayapp/railpack-runtime:mise-2026.8.16
+2026-09-05T06:54:37.654335776Z [inf]  [railpack] secrets hash
+2026-09-05T06:54:37.654362677Z [inf]  [railpack] merge $packages:apt:runtime, $packages:caddy, $caddy, $build
+2026-09-05T06:54:37.654363478Z [inf]  copy /app/dist
+2026-09-05T06:54:37.654363979Z [inf]  npm run build
+2026-09-05T06:54:37.654365361Z [inf]  copy / /app
+2026-09-05T06:54:37.654365862Z [inf]  npm install
+2026-09-05T06:54:37.654367444Z [inf]  copy package.json
+2026-09-05T06:54:37.654815206Z [inf]  docker-image://ghcr.io/railwayapp/railpack-runtime:mise-2026.8.16
+2026-09-05T06:54:37.655007284Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:mise-2026.8.16
+2026-09-05T06:54:37.655009468Z [inf]  [railpack] secrets hash
+2026-09-05T06:54:37.655075076Z [inf]  [railpack] secrets hash
+2026-09-05T06:54:37.655078161Z [inf]  loading .
+2026-09-05T06:54:37.655386814Z [inf]  loading .
+2026-09-05T06:54:37.707432582Z [inf]  docker-image://ghcr.io/railwayapp/railpack-runtime:mise-2026.8.16
+2026-09-05T06:54:37.720518178Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:mise-2026.8.16
+2026-09-05T06:54:37.722973274Z [inf]  loading .
+2026-09-05T06:54:37.722978211Z [inf]  [railpack] secrets hash
+2026-09-05T06:54:37.866499534Z [inf]  [railpack] secrets hash
+2026-09-05T06:54:37.923562043Z [inf]  mise install-into caddy@2.11.4 /railpack/caddy
+2026-09-05T06:54:37.923564217Z [inf]  mkfile /Caddyfile
+2026-09-05T06:54:37.991550587Z [inf]  loading .
+2026-09-05T06:54:37.991707392Z [inf]  mkfile /Caddyfile
+2026-09-05T06:54:37.991904799Z [inf]  caddy fmt --overwrite /Caddyfile
+2026-09-05T06:54:38.106619563Z [inf]  mkdir /etc/mise
+2026-09-05T06:54:38.106621556Z [inf]  create mise config
+2026-09-05T06:54:38.106622768Z [inf]  install mise packages: node
+2026-09-05T06:54:38.106627345Z [inf]  mkdir -p /app/node_modules/.cache
+2026-09-05T06:54:38.155233168Z [inf]  mkdir -p /app/node_modules/.cache
+2026-09-05T06:54:38.155580740Z [inf]  copy package-lock.json
+2026-09-05T06:54:38.344372088Z [inf]  copy package-lock.json
+2026-09-05T06:54:38.372566407Z [inf]  copy package.json
+2026-09-05T06:54:38.542573724Z [inf]  copy package.json
+2026-09-05T06:54:38.571525300Z [inf]  npm install
+2026-09-05T06:54:38.723500244Z [inf]  caddy fmt --overwrite /Caddyfile
+2026-09-05T06:54:39.369673423Z [inf]  npm warn config production Use `--omit=dev` instead.
+
+2026-09-05T06:55:20.178971762Z [inf]  docker-image://ghcr.io/railwayapp/railpack-builder:mise-2026.8.16
+2026-09-05T06:58:49.950173653Z [inf]  npm error code ENOTFOUND
+
+2026-09-05T06:58:49.95019186Z [inf]  npm error syscall getaddrinfo
+
+2026-09-05T06:58:49.950264158Z [inf]  npm error errno ENOTFOUND
+
+2026-09-05T06:58:49.950430538Z [inf]  npm error network request to http://package-firewall.replit.local/npm/vite/-/vite-8.2.2.tgz failed, reason: getaddrinfo ENOTFOUND package-firewall.replit.local
+
+2026-09-05T06:58:49.951054075Z [inf]  npm error network This is a problem related to network connectivity.
+npm error network In most cases you are behind a proxy or have bad network settings.
+npm error network
+npm error network If you are behind a proxy, please make sure that the 'proxy' config is set properly.  See: 'npm help config'
+
+2026-09-05T06:58:49.95362205Z [inf]  npm error A complete log of this run can be found in: /root/.npm/_logs/2026-09-05T06_54_39_339Z-debug-0.log
+
+2026-09-05T06:58:50.264155803Z [err]  npm install
+2026-09-05T06:58:50.293250003Z [err]  Build Failed: build daemon returned an error < failed to solve: process "npm install" did not complete successfully: exit code: 1 >
