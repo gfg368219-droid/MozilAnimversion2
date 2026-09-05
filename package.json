@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5000 --strictPort",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 5000"
+    "preview": "vite preview --host 0.0.0.0 --port 5000",
+    "start": "node server/app.js"
   },
   "dependencies": {
+    "@replit/connectors-sdk": "^0.4.3",
     "@vitejs/plugin-react": "^6.1.1",
     "lucide-react": "^1.41.0",
     "react": "^19.2.8",

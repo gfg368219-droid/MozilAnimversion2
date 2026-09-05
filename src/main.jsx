@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowLeft, ArrowRight, ArrowUp, CalendarDays, Check, ChevronLeft, ChevronRight,
@@ -27,6 +27,18 @@ const readJson = (key, fallback) => {
   } catch {
     return fallback;
   }
+};
+
+const sessionToken = () => localStorage.getItem('mozilanim-session-token') || '';
+const authHeaders = (token = sessionToken()) => token ? { Authorization: `Bearer ${token}` } : {};
+const apiRequest = async (pathname, options = {}) => {
+  const response = await fetch(pathname, {
+    ...options,
+    headers: { ...authHeaders(), ...(options.headers || {}) }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `Erreur serveur (${response.status}).`);
+  return payload;
 };
 
 const readStoredAnime = () => {
@@ -73,12 +85,12 @@ async function saveVideoFile(file) {
   const id = `video-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const db = await openVideoDb();
   await new Promise((resolve, reject) => {
-    const request = db.transaction(VIDEO_STORE_NAME, 'readwrite').objectStore(VIDEO_STORE_NAME).put({ id, blob: file, name: file.name, type: file.type, uploadedBytes: 0, uploadStatus: 'waiting' });
+    const request = db.transaction(VIDEO_STORE_NAME, 'readwrite').objectStore(VIDEO_STORE_NAME).put({ id, blob: file, name: file.name, type: file.type, uploadedBytes: 0, uploadStatus: 'waiting', sessionToken: sessionToken() });
     request.onsuccess = resolve;
     request.onerror = () => reject(request.error || new Error('Impossible d’enregistrer la vidéo.'));
   });
   db.close();
-  queueVideoUpload(id);
+  queueVideoUpload(id, sessionToken());
   return { type: 'upload', videoId: id, fileName: file.name, mimeType: file.type };
 }
 
@@ -91,15 +103,17 @@ async function loadVideoFile(videoId) {
     request.onerror = () => reject(request.error);
   });
   db.close();
-  return video?.blob ? URL.createObjectURL(video.blob) : null;
+  if (video?.remoteUrl) return video.remoteUrl;
+  if (video?.blob) return URL.createObjectURL(video.blob);
+  return `/api/uploads/${encodeURIComponent(videoId)}/file`;
 }
 
 const uploadedEpisode = (episode) => episode && typeof episode === 'object' && episode.type === 'upload' && episode.videoId;
 
-function queueVideoUpload(id) {
+function queueVideoUpload(id, token = sessionToken()) {
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.ready.then((registration) => {
-    registration.active?.postMessage({ type: 'UPLOAD_VIDEO', id });
+    registration.active?.postMessage({ type: 'UPLOAD_VIDEO', id, token });
     registration.sync?.register('mozilanim-video-uploads').catch(() => {});
   }).catch(() => {});
 }
@@ -116,14 +130,30 @@ function App() {
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [selectedReader, setSelectedReader] = useState(0);
   const [episodeIndex, setEpisodeIndex] = useState(0);
-  const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('mozilanim-admin') === 'true');
-  const [currentUser, setCurrentUser] = useState(() => {
-    const id = sessionStorage.getItem('mozilanim-user');
-    return id ? readJson('mozilanim-users', []).find((user) => user.id === id) || null : null;
-  });
+  const storedSessionUser = readJson('mozilanim-session-user', null);
+  const [isAdmin, setIsAdmin] = useState(() => storedSessionUser?.role === 'admin' || localStorage.getItem('mozilanim-admin') === 'true');
+  const [currentUser, setCurrentUser] = useState(() => storedSessionUser || null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginMode, setLoginMode] = useState('login');
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [remoteReady, setRemoteReady] = useState(false);
+  const legacyState = useRef({
+    anime: readStoredAnime(),
+    applications: readJson('mozilanim-studio-applications', []),
+    stats: readJson('mozilanim-stats', {}),
+    users: readJson('mozilanim-users', [])
+  });
+
+  const loadPrivateState = async (token = sessionToken()) => {
+    if (!token) return;
+    const data = await apiRequest('/api/private-state', { headers: authHeaders(token) });
+    setAnime(Array.isArray(data.anime) ? data.anime : []);
+    setApplications(Array.isArray(data.applications) ? data.applications : []);
+    setStats(data.stats && typeof data.stats === 'object' ? data.stats : {});
+    setUsers(Array.isArray(data.users) ? data.users : []);
+    setRemoteReady(true);
+    return data;
+  };
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return undefined;
@@ -134,11 +164,55 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    apiRequest('/api/state').then((data) => {
+      if (!active) return;
+      const hasRemoteContent = Array.isArray(data.anime) && data.anime.length > 0;
+      if (hasRemoteContent || legacyState.current.anime.length === 0) {
+        setAnime(Array.isArray(data.anime) ? data.anime : []);
+        setStats(data.stats && typeof data.stats === 'object' ? data.stats : {});
+      }
+      setRemoteReady(Boolean(sessionToken()));
+    }).catch(() => {
+      if (active) setRemoteReady(false);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const token = sessionToken();
+    if (!token) return undefined;
+    let active = true;
+    apiRequest('/api/auth/session', { headers: authHeaders(token) }).then(async ({ user }) => {
+      if (!active || !user) return;
+      setCurrentUser(user);
+      setIsAdmin(user.role === 'admin');
+      await loadPrivateState(token);
+    }).catch(() => {
+      localStorage.removeItem('mozilanim-session-token');
+      localStorage.removeItem('mozilanim-session-user');
+    });
+    return () => { active = false; };
+  }, []);
+
   useEffect(() => localStorage.setItem('mozilanim-anime', JSON.stringify(anime)), [anime]);
   useEffect(() => localStorage.setItem('mozilanim-users', JSON.stringify(users)), [users]);
   useEffect(() => localStorage.setItem('mozilanim-studio-applications', JSON.stringify(applications)), [applications]);
   useEffect(() => localStorage.setItem('mozilanim-progress', JSON.stringify(progress)), [progress]);
   useEffect(() => localStorage.setItem('mozilanim-stats', JSON.stringify(stats)), [stats]);
+
+  useEffect(() => {
+    if (!remoteReady || !sessionToken()) return undefined;
+    const timer = window.setTimeout(() => {
+      apiRequest('/api/state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ anime, applications, stats, users })
+      }).catch(() => {});
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [anime, applications, stats, users, remoteReady]);
 
   useEffect(() => {
     const onHash = () => setView(viewFromHash(window.location.hash));
@@ -194,15 +268,40 @@ function App() {
   const logout = () => {
     setIsAdmin(false);
     setCurrentUser(null);
+    apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    localStorage.removeItem('mozilanim-session-token');
+    localStorage.removeItem('mozilanim-session-user');
+    localStorage.removeItem('mozilanim-admin');
     sessionStorage.removeItem('mozilanim-admin');
     sessionStorage.removeItem('mozilanim-user');
     go('home');
   };
-  const onLogin = (account) => {
-    setCurrentUser(account);
-    sessionStorage.setItem('mozilanim-user', account.id);
+  const onLogin = async ({ user, token }) => {
+    localStorage.setItem('mozilanim-session-token', token);
+    localStorage.setItem('mozilanim-session-user', JSON.stringify(user));
+    setCurrentUser(user);
+    setIsAdmin(user.role === 'admin');
+    try {
+      const privateData = await loadPrivateState(token);
+      const legacy = legacyState.current;
+      if (user.role === 'admin' && !privateData.anime?.length && legacy.anime.length) {
+        await apiRequest('/api/state', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            anime: legacy.anime,
+            applications: legacy.applications,
+            stats: legacy.stats,
+            users: legacy.users.map(({ password, ...safeUser }) => safeUser)
+          })
+        });
+        await loadPrivateState(token);
+      }
+    } catch {
+      // The session itself remains valid if the private state is temporarily unavailable.
+    }
     setLoginOpen(false);
-    go(account.role === 'studio-maker' ? 'studio' : 'home');
+    go(user.role === 'admin' ? 'admin' : user.role === 'studio-maker' ? 'studio' : 'home');
   };
 
   return (
@@ -219,7 +318,7 @@ function App() {
         {view === 'admin' && !isAdmin && <AccessDenied onLogin={() => { setLoginMode('login'); setLoginOpen(true); }} />}
       </main>
       <Footer go={go} />
-      <LoginModal open={loginOpen} mode={loginMode} setMode={setLoginMode} onClose={() => setLoginOpen(false)} onUserSuccess={onLogin} onAdminSuccess={() => { setIsAdmin(true); sessionStorage.setItem('mozilanim-admin', 'true'); setLoginOpen(false); go('admin'); }} users={users} setUsers={setUsers} />
+      <LoginModal open={loginOpen} mode={loginMode} setMode={setLoginMode} onClose={() => setLoginOpen(false)} onAuthenticated={onLogin} />
     </div>
   );
 }
@@ -615,27 +714,29 @@ function SeasonForm({ item, existingSeason, onClose, onSave }) {
   return <div className="modal-backdrop"><form className="modal season-modal" onSubmit={save}><div className="modal-heading"><div><span className="eyebrow">{existingSeason ? 'MODIFIER LE CONTENU' : 'AJOUTER DU CONTENU'}</span><h2>{item.name}</h2></div><button type="button" className="close-button" onClick={onClose}><X size={18} /></button></div><Field label="Nom de la saison"><input required value={name} onChange={(event) => setName(event.target.value)} /></Field><div className="version-heading"><span>VERSIONS ET LECTEURS</span><button type="button" className="text-button" onClick={addVersion}><Plus size={14} /> AJOUTER UNE VERSION</button></div>{versions.map((version, index) => <div className="version-form" key={index}><div className="version-line"><Field label={`Nom de la version ${index + 1}`}><input value={version.name} onChange={(event) => setVersions(versions.map((v, i) => i === index ? { ...v, name: event.target.value } : v))} placeholder="VOSTFR, VF, VKR..." /></Field><span className="reader-hint">{parsePlayers(version.script).length ? parsePlayers(version.script).reduce((sum, reader) => sum + reader.episodes.length, 0) : allEpisodes({ readers: version.existingReaders || [] }).length} épisode(s) détecté(s)</span></div><Field label="Script des épisodes" hint={existingSeason && version.existingReaders?.length ? 'Laissez vide pour conserver les épisodes actuels' : 'Collez vos tableaux var eps1 = [ ... ]'}><textarea rows="7" value={version.script} onChange={(event) => setVersions(versions.map((v, i) => i === index ? { ...v, script: event.target.value } : v))} placeholder="var eps1 = [ 'https://...' ];" /></Field></div>)}<div className="modal-actions"><button type="button" className="ghost-button" onClick={onClose}>ANNULER</button><button className="primary-button" type="submit"><Check size={16} /> {existingSeason ? 'ENREGISTRER LES MODIFICATIONS' : 'ENREGISTRER LA SAISON'}</button></div></form></div>;
 }
 
-function LoginModal({ open, mode, setMode, onClose, onUserSuccess, onAdminSuccess, users, setUsers }) {
+function LoginModal({ open, mode, setMode, onClose, onAuthenticated }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   useEffect(() => { if (open) setError(''); }, [open, mode]);
   if (!open) return null;
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     const normalizedEmail = email.trim().toLowerCase();
-    if (mode === 'register') {
-      if (password.length < 6) return setError('Le mot de passe doit contenir au moins 6 caractères.');
-      if (!name.trim()) return setError('Indiquez votre nom.');
-      if (users.some((user) => user.email === normalizedEmail)) return setError('Un compte existe déjà avec cet email.');
-      const account = { id: `user-${Date.now()}`, name: name.trim(), email: normalizedEmail, password, role: 'user', createdAt: Date.now() };
-      setUsers((current) => [...current, account]); onUserSuccess(account); return;
+    if (mode === 'register' && (!name.trim() || password.length < 6)) {
+      return setError(!name.trim() ? 'Indiquez votre nom.' : 'Le mot de passe doit contenir au moins 6 caractères.');
     }
-    if (normalizedEmail === 'ysoeok@gmail.com' && password === '#Real2012mvogo') { onAdminSuccess(); return; }
-    const account = users.find((user) => user.email === normalizedEmail && user.password === password);
-    if (!account) return setError('Email ou mot de passe incorrect.');
-    onUserSuccess(account);
+    try {
+      const result = await apiRequest(`/api/auth/${mode === 'register' ? 'register' : 'login'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), email: normalizedEmail, password })
+      });
+      await onAuthenticated(result);
+    } catch (submitError) {
+      setError(submitError.message || 'Connexion impossible.');
+    }
   };
   return <div className="modal-backdrop"><form className="modal login-modal" onSubmit={submit}><button type="button" className="close-button" onClick={onClose}><X size={18} /></button><div className="login-mark"><UserCircle size={25} /></div><span className="eyebrow">COMPTE MOZILANIM</span><h2>{mode === 'register' ? 'Créer un compte' : 'Se connecter'}</h2>{mode === 'register' && <Field label="Votre nom"><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Votre nom" /></Field>}<Field label="Adresse email"><input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="votre@email.com" /></Field><Field label="Mot de passe"><input type="password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /></Field>{error && <div className="form-error">{error}</div>}<button className="primary-button login-button" type="submit">{mode === 'register' ? 'CRÉER MON COMPTE' : 'SE CONNECTER'} <ArrowRight size={16} /></button><button className="switch-login" type="button" onClick={() => setMode(mode === 'register' ? 'login' : 'register')}>{mode === 'register' ? 'J’ai déjà un compte' : 'Créer un compte'}</button></form></div>;
 }
