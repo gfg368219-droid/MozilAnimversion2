@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { readSupabaseJson, supabaseError, supabaseRequest } from './supabase.js';
 
 const STATE_ID = 'main';
-const SESSION_DAYS = 30;
+const SESSION_DAYS = 365;
 
 const emptyState = () => ({ anime: [], applications: [], stats: {}, users: [] });
 const publicUser = (user) => user && ({
