@@ -55,15 +55,13 @@ async function registerRetry() {
   }
 }
 
-async function uploadVideo(id, token) {
+async function uploadVideo(id) {
   const record = await getVideo(id);
   if (!record?.blob || record.uploadStatus === 'complete') return;
-  const sessionToken = token || record.sessionToken || '';
-  const auth = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
   try {
     const initResponse = await fetch('/api/uploads/init', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...auth },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, name: record.name, type: record.type, size: record.blob.size })
     });
     if (!initResponse.ok) throw new Error('Initialisation impossible');
@@ -77,7 +75,6 @@ async function uploadVideo(id, token) {
         headers: {
           'Content-Type': record.type || 'application/octet-stream',
           'Content-Range': `bytes ${offset}-${end - 1}/${record.blob.size}`
-          ,...auth
         },
         body: chunk
       });
@@ -88,7 +85,7 @@ async function uploadVideo(id, token) {
     }
     const completeResponse = await fetch(`/api/uploads/${id}/complete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...auth },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ size: record.blob.size })
     });
     if (!completeResponse.ok) throw new Error('Finalisation impossible');
@@ -109,12 +106,12 @@ async function uploadPending() {
   });
   db.close();
   for (const record of records) {
-    if (record.uploadStatus !== 'complete') await uploadVideo(record.id, record.sessionToken);
+    if (record.uploadStatus !== 'complete') await uploadVideo(record.id);
   }
 }
 
 self.addEventListener('message', (event) => {
-  if (event.data?.type === 'UPLOAD_VIDEO') event.waitUntil(uploadVideo(event.data.id, event.data.token));
+  if (event.data?.type === 'UPLOAD_VIDEO') event.waitUntil(uploadVideo(event.data.id));
 });
 
 self.addEventListener('sync', (event) => {

@@ -1,13 +1,10 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { createUploadRecord, getUploadRecord } from './persistence.js';
-import { readSupabaseJson, supabaseError, supabaseRequest } from './supabase.js';
-import { sessionUser } from './persistence.js';
 
 const uploadDirectory = path.resolve(process.cwd(), 'uploads');
+
 const safeId = (value) => /^[a-zA-Z0-9_-]+$/.test(value || '');
 const pathsFor = (id) => ({
   part: path.join(uploadDirectory, `${id}.part`),
@@ -32,141 +29,67 @@ const contentRangeStart = (request) => {
   return match ? { start: Number(match[1]), end: Number(match[2]), total: Number(match[3]) } : null;
 };
 
-async function requireUser(request, response) {
-  const user = await sessionUser(request);
-  if (!user) {
-    sendJson(response, 401, { error: 'Connexion requise pour gérer une vidéo.' });
-    return null;
-  }
-  return user;
-}
-
-async function uploadToStorage(id, meta, filePath) {
-  const storagePath = id;
-  const file = await fsp.readFile(filePath);
-  const storageResponse = await supabaseRequest(`/storage/v1/object/mozilanim-videos/${encodeURIComponent(storagePath)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': meta.type || 'video/mp4',
-      'x-upsert': 'true'
-    },
-    body: file
-  });
-  const payload = await readSupabaseJson(storageResponse);
-  if (!storageResponse.ok) throw supabaseError(storageResponse, payload);
-  await createUploadRecord({
-    id,
-    name: meta.name || id,
-    mime_type: meta.type || 'video/mp4',
-    size: Number(meta.size),
-    storage_path: storagePath
-  });
-  return `/api/uploads/${id}/file`;
-}
-
-export async function handleUpload(request, response, pathname) {
-  if (!pathname.startsWith('/api/uploads')) return false;
+async function handleUpload(request, response, pathname) {
   await fsp.mkdir(uploadDirectory, { recursive: true });
   const parts = pathname.split('/').filter(Boolean);
 
   if (request.method === 'POST' && parts.length === 3 && parts[1] === 'uploads' && parts[2] === 'init') {
-    if (!await requireUser(request, response)) return true;
     const body = await readJson(request);
     const id = String(body.id || '');
-    if (!safeId(id) || !Number.isFinite(body.size) || body.size < 1) {
-      sendJson(response, 400, { error: 'Upload invalide.' });
-      return true;
-    }
+    if (!safeId(id) || !Number.isFinite(body.size) || body.size < 1) return sendJson(response, 400, { error: 'Upload invalide.' });
     const paths = pathsFor(id);
     if (!fs.existsSync(paths.part) && !fs.existsSync(paths.file)) await fsp.writeFile(paths.part, '');
     await fsp.writeFile(paths.meta, JSON.stringify({ name: body.name || 'video', type: body.type || 'video/mp4', size: body.size }));
-    sendJson(response, 200, { id, uploadedBytes: fs.existsSync(paths.part) ? (await fsp.stat(paths.part)).size : 0 });
-    return true;
+    return sendJson(response, 200, { id, uploadedBytes: fs.existsSync(paths.part) ? (await fsp.stat(paths.part)).size : 0 });
   }
 
-  if (!safeId(parts[2])) {
-    sendJson(response, 400, { error: 'Identifiant invalide.' });
-    return true;
-  }
+  if (!safeId(parts[2])) return sendJson(response, 400, { error: 'Identifiant invalide.' });
   const id = parts[2];
   const paths = pathsFor(id);
 
   if (request.method === 'PATCH' && parts.length === 3) {
-    if (!await requireUser(request, response)) return true;
     const range = contentRangeStart(request);
-    if (!range) {
-      sendJson(response, 400, { error: 'Content-Range manquant.' });
-      return true;
-    }
+    if (!range) return sendJson(response, 400, { error: 'Content-Range manquant.' });
     const currentSize = fs.existsSync(paths.part) ? (await fsp.stat(paths.part)).size : 0;
-    if (currentSize !== range.start) {
-      sendJson(response, 409, { error: 'Décalage d’upload.', uploadedBytes: currentSize });
-      return true;
-    }
+    if (currentSize !== range.start) return sendJson(response, 409, { error: 'Décalage d’upload.', uploadedBytes: currentSize });
     await pipeline(request, fs.createWriteStream(paths.part, { flags: 'a' }));
     const uploadedBytes = (await fsp.stat(paths.part)).size;
-    sendJson(response, 200, { id, uploadedBytes });
-    return true;
+    return sendJson(response, 200, { id, uploadedBytes });
   }
 
   if (request.method === 'POST' && parts.length === 4 && parts[3] === 'complete') {
-    if (!await requireUser(request, response)) return true;
     const body = await readJson(request);
-    if (!fs.existsSync(paths.part)) {
-      sendJson(response, 404, { error: 'Upload introuvable.' });
-      return true;
-    }
+    if (!fs.existsSync(paths.part)) return sendJson(response, 404, { error: 'Upload introuvable.' });
     const size = (await fsp.stat(paths.part)).size;
-    if (size !== Number(body.size)) {
-      sendJson(response, 409, { error: 'Taille de fichier incomplète.', uploadedBytes: size });
-      return true;
-    }
-    const meta = JSON.parse(await fsp.readFile(paths.meta, 'utf8'));
-    const url = await uploadToStorage(id, meta, paths.part);
-    await fsp.rm(paths.part, { force: true });
-    await fsp.rm(paths.meta, { force: true });
-    sendJson(response, 200, { id, url });
-    return true;
+    if (size !== Number(body.size)) return sendJson(response, 409, { error: 'Taille de fichier incomplète.', uploadedBytes: size });
+    await fsp.rename(paths.part, paths.file);
+    return sendJson(response, 200, { id, url: `/api/uploads/${id}/file` });
   }
 
   if (request.method === 'GET' && parts.length === 4 && parts[3] === 'file') {
-    const upload = await getUploadRecord(id);
-    if (!upload) {
-      sendJson(response, 404, { error: 'Vidéo introuvable.' });
-      return true;
-    }
-    const range = request.headers.range;
-    const storageResponse = await supabaseRequest(`/storage/v1/object/mozilanim-videos/${encodeURIComponent(upload.storage_path)}`, {
-      headers: range ? { Range: range } : {}
-    });
-    if (!storageResponse.ok) {
-      const payload = await readSupabaseJson(storageResponse);
-      throw supabaseError(storageResponse, payload);
-    }
-    response.statusCode = storageResponse.status;
-    response.setHeader('Content-Type', upload.mime_type || storageResponse.headers.get('content-type') || 'video/mp4');
-    for (const header of ['content-length', 'content-range', 'accept-ranges']) {
-      const value = storageResponse.headers.get(header);
-      if (value) response.setHeader(header, value);
-    }
-    if (storageResponse.body) return Readable.fromWeb(storageResponse.body).pipe(response);
-    response.end(Buffer.from(await storageResponse.arrayBuffer()));
-    return true;
+    if (!fs.existsSync(paths.file)) return sendJson(response, 404, { error: 'Vidéo introuvable.' });
+    const meta = fs.existsSync(paths.meta) ? JSON.parse(await fsp.readFile(paths.meta, 'utf8')) : {};
+    const stat = await fsp.stat(paths.file);
+    response.statusCode = 200;
+    response.setHeader('Content-Type', meta.type || 'video/mp4');
+    response.setHeader('Content-Length', stat.size);
+    response.setHeader('Accept-Ranges', 'bytes');
+    return fs.createReadStream(paths.file).pipe(response);
   }
 
-  sendJson(response, 404, { error: 'Route d’upload introuvable.' });
-  return true;
+  return sendJson(response, 404, { error: 'Route d’upload introuvable.' });
 }
 
 export function uploadApiPlugin() {
   const attach = (server) => {
     server.middlewares.use(async (request, response, next) => {
-      if (!new URL(request.url || '/', 'http://localhost').pathname.startsWith('/api/uploads')) return next();
+      const pathname = new URL(request.url || '/', 'http://localhost').pathname;
+      if (!pathname.startsWith('/api/uploads')) return next();
       try {
-        await handleUpload(request, response, new URL(request.url || '/', 'http://localhost').pathname);
+        await handleUpload(request, response, pathname);
       } catch (error) {
         console.error('[upload-api]', error);
-        if (!response.headersSent) sendJson(response, 500, { error: error.message || 'Erreur pendant l’upload.' });
+        if (!response.headersSent) sendJson(response, 500, { error: 'Erreur pendant l’upload.' });
       }
     });
   };

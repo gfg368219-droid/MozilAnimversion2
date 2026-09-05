@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { apiPlugin } from './server/api.js';
+import { uploadApiPlugin } from './server/upload-api.js';
 
 export default defineConfig({
-  plugins: [react(), apiPlugin()],
+  plugins: [react(), uploadApiPlugin()],
   server: {
     host: '0.0.0.0',
     port: 5000,
