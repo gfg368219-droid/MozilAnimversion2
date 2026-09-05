@@ -1,0 +1,3 @@
+- [Stockage vidéo direct](video-storage.md) — les uploads utilisent IndexedDB, un service worker reprenable et un lecteur HTML5, jamais iframe.
+- [Planning de publication](publication-planning.md) — un anime sans date attribuée par l’administration reste absent du planning public.
+- [Import GitHub privé](github-import.md) — via le proxy GitHub, importer les fichiers de l’arborescence quand les endpoints d’archive sont bloqués.
