@@ -53,11 +53,13 @@ const animeSourceKey = (value) => {
 };
 const allEpisodes = (version) => version?.readers?.flatMap((reader) => reader.episodes || []) || [];
 const episodeLabel = (version, index) => version?.episodeNames?.[index] || `Épisode ${index + 1}`;
-const firstVersionName = (item) => item?.seasons?.flatMap((season) => season.versions || []).map((version) => version.name).find(Boolean) || 'VOSTFR';
 const versionBadge = (item) => {
-  const name = firstVersionName(item).toUpperCase();
-  const label = name.includes('VOSTFR') ? 'VOSTFR' : name.includes('VF') ? 'VF' : name;
-  return { flag: label === 'VF' || label.includes('FR') ? '🇫🇷' : '🇯🇵', label };
+  const names = item?.seasons?.flatMap((season) => season.versions || [])
+    .map((version) => String(version.name || '').toUpperCase());
+  const hasFrench = names.some((name) => /\bVF\b/.test(name));
+  const hasOriginal = names.some((name) => /\bVO\b/.test(name) || name.includes('VOSTFR'));
+  const flags = [hasOriginal ? '🇯🇵' : '', hasFrench ? '🇫🇷' : ''].filter(Boolean);
+  return flags.length ? flags.join('/') : '🇯🇵';
 };
 const isToday = (item, date = new Date()) => {
   const schedule = item.schedule;
@@ -342,7 +344,7 @@ function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime,
             const episodeCount = allEpisodes(version).length;
             if (!season || !version || !episodeCount) return null;
             return <div className="resume-card" key={item.id}>
-              <button className="resume-poster" style={{ backgroundImage: `url(${item.poster})` }} onClick={() => resumeAnime(item)} aria-label={`Reprendre ${item.name}`}><span className="resume-type">Anime</span><span className="resume-flag"><span>{versionBadge(item).flag}</span><b>{versionBadge(item).label}</b></span><span className="resume-play"><Play size={22} fill="currentColor" /></span></button>
+              <button className="resume-poster" style={{ backgroundImage: `url(${item.poster})` }} onClick={() => resumeAnime(item)} aria-label={`Reprendre ${item.name}`}><span className="resume-type">Anime</span><span className="resume-flag">{versionBadge(item)}</span><span className="resume-play"><Play size={22} fill="currentColor" /></span></button>
               <div className="resume-copy"><h3>{item.name}</h3><div className="resume-progress"><span style={{ width: `${Math.min(((saved.episodeIndex + 1) / episodeCount) * 100, 100)}%` }} /></div><button onClick={() => resumeAnime(item)}><MonitorPlay size={16} /> {season.name} {episodeLabel(version, saved.episodeIndex)}</button></div>
               <button className="resume-remove" onClick={() => setProgress((current) => { const next = { ...current }; delete next[`${currentUser?.id || 'guest'}:${item.id}`]; return next; })} aria-label="Retirer de la reprise"><X size={20} /></button>
             </div>;
@@ -360,7 +362,7 @@ function ContentRail({ title, icon, anime, openAnime, compact = false, emptyMess
 
 function AnimeCard({ item, index, openAnime, compact }) {
   const badge = versionBadge(item);
-  return <button className={`anime-card ${compact ? 'card-compact' : ''}`} onClick={() => openAnime(item)}><div className="card-image" style={{ backgroundImage: `url(${item.poster})` }}><span className="card-type">{item.isStudio ? 'Studio' : 'Anime'}</span><span className="card-flag"><span>{badge.flag}</span><b>{badge.label}</b></span><span className="card-overlay"><Play size={21} fill="currentColor" /></span></div><div className="card-body"><h3>{item.name}</h3><div className="card-meta"><span><Clock3 size={13} /> Publication</span><span><Tv size={13} /> {item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div></div></button>;
+  return <button className={`anime-card ${compact ? 'card-compact' : ''}`} onClick={() => openAnime(item)}><div className="card-image" style={{ backgroundImage: `url(${item.poster})` }}><span className="card-type">{item.isStudio ? 'Studio' : 'Anime'}</span><span className="card-flag">{badge}</span><span className="card-overlay"><Play size={21} fill="currentColor" /></span></div><div className="card-body"><h3>{item.name}</h3><div className="card-meta"><span><Clock3 size={13} /> Publication</span><span><Tv size={13} /> {item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div></div></button>;
 }
 
 function Catalog({ anime, openAnime }) {
