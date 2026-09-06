@@ -92,7 +92,7 @@ async function initializeJob(jobId) {
     const entries = job.kind === 'planning' ? await fetchPlanning(source) : await fetchCatalogue(source);
     await updateState((current) => ({
       ...current,
-      jobs: current.jobs.map((entry) => entry.id === jobId ? {
+      jobs: current.jobs.map((entry) => entry.id === jobId && entry.status !== 'cancelled' ? {
         ...entry,
         setupStatus: 'ready',
         status: entries.length ? 'running' : 'completed',
@@ -129,7 +129,7 @@ async function initializeJob(jobId) {
 async function processOneEntry(jobId, entryId) {
   await updateState((current) => ({
     ...current,
-    jobs: current.jobs.map((job) => job.id !== jobId ? job : {
+    jobs: current.jobs.map((job) => job.id !== jobId || job.status === 'cancelled' ? job : {
       ...job,
       status: 'running',
       entries: job.entries.map((entry) => entry.id === entryId ? {
@@ -144,18 +144,21 @@ async function processOneEntry(jobId, entryId) {
   const state = await readState();
   const job = state.jobs.find((entry) => entry.id === jobId);
   const entry = job?.entries.find((item) => item.id === entryId);
-  if (!job || !entry) return;
+  if (!job || !entry || job.status === 'cancelled') return;
   try {
     const imported = await importAnime(entry.title, entry.url);
-    await updateState((current) => ({
-      ...current,
-      anime: upsertAnime(current.anime, {
-        ...imported,
-        ...(job.kind === 'planning' && (entry.date || entry.day !== undefined) ? {
-          schedule: entry.date ? { date: entry.date, time: entry.time || '18:00', day: entry.day, seasonId: imported.seasons.at(-1)?.id } : { day: entry.day, time: entry.time || '18:00', seasonId: imported.seasons.at(-1)?.id }
-        } : {})
-      }),
-      jobs: current.jobs.map((savedJob) => savedJob.id !== jobId ? savedJob : {
+    await updateState((current) => {
+      const savedJob = current.jobs.find((candidate) => candidate.id === jobId);
+      if (!savedJob || savedJob.status === 'cancelled') return current;
+      return {
+        ...current,
+        anime: upsertAnime(current.anime, {
+          ...imported,
+          ...(job.kind === 'planning' && (entry.date || entry.day !== undefined) ? {
+            schedule: entry.date ? { date: entry.date, time: entry.time || '18:00', day: entry.day, seasonId: imported.seasons.at(-1)?.id } : { day: entry.day, time: entry.time || '18:00', seasonId: imported.seasons.at(-1)?.id }
+          } : {})
+        }),
+        jobs: current.jobs.map((savedJob) => savedJob.id !== jobId ? savedJob : {
         ...savedJob,
         entries: savedJob.entries.map((savedEntry) => savedEntry.id === entryId ? {
           ...savedEntry,
@@ -165,8 +168,9 @@ async function processOneEntry(jobId, entryId) {
           finishedAt: Date.now()
         } : savedEntry),
         updatedAt: Date.now()
-      })
-    }));
+        })
+      };
+    });
   } catch (error) {
     await updateState((current) => ({
       ...current,
@@ -235,6 +239,22 @@ async function handleCatalog(request, response) {
     if (!Array.isArray(body.anime)) return sendJson(response, 400, { error: 'Le catalogue est invalide.' });
     const state = await updateState((current) => ({ ...current, anime: body.anime }));
     return sendJson(response, 200, { anime: state.anime });
+  }
+  if (request.method === 'DELETE') {
+    if (!isAdminRequest(request)) return sendJson(response, 401, { error: 'Session administrateur requise.' });
+    const state = await updateState((current) => ({
+      ...current,
+      anime: [],
+      jobs: current.jobs.map((job) => ['queued', 'retrying', 'running'].includes(job.status) ? {
+        ...job,
+        status: 'cancelled',
+        updatedAt: Date.now(),
+        entries: (job.entries || []).map((entry) => ['pending', 'retrying', 'running'].includes(entry.status)
+          ? { ...entry, status: 'cancelled', error: 'Import annulé après suppression du catalogue.' }
+          : entry)
+      } : job)
+    }));
+    return sendJson(response, 200, { anime: state.anime, message: 'Catalogue et planning supprimés.' });
   }
   return sendJson(response, 405, { error: 'Méthode non autorisée.' });
 }
