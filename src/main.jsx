@@ -54,12 +54,17 @@ const animeSourceKey = (value) => {
 const allEpisodes = (version) => version?.readers?.flatMap((reader) => reader.episodes || []) || [];
 const episodeLabel = (version, index) => version?.episodeNames?.[index] || `Épisode ${index + 1}`;
 const versionBadge = (item) => {
-  const names = item?.seasons?.flatMap((season) => season.versions || [])
-    .map((version) => String(version.name || '').toUpperCase());
-  const hasFrench = names.some((name) => /\bVF\b/.test(name));
-  const hasOriginal = names.some((name) => /\bVO\b/.test(name) || name.includes('VOSTFR'));
-  const flags = [hasOriginal ? '🇯🇵' : '', hasFrench ? '🇫🇷' : ''].filter(Boolean);
-  return flags.length ? flags.join('/') : '🇯🇵';
+  const names = [...new Set(item?.seasons?.flatMap((season) => season.versions || [])
+    .map((version) => String(version.name || '').toUpperCase()).filter(Boolean))];
+  const badges = names.map((name) => {
+    if (name.includes('VOSTFR')) return '🇯🇵 VO sous-titrée';
+    if (/\bVF\b/.test(name)) return '🇫🇷 Version française';
+    if (/\bVKR\b/.test(name)) return '🇰🇷 Coréen';
+    if (/\bVA\b/.test(name)) return '🇬🇧 Anglais';
+    if (/\bVO\b/.test(name)) return '🇯🇵 Japonais';
+    return null;
+  }).filter(Boolean);
+  return badges.length ? badges.join(' / ') : '🇯🇵 Japonais';
 };
 const isToday = (item, date = new Date()) => {
   const schedule = item.schedule;

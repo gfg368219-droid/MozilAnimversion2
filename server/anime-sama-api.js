@@ -213,12 +213,13 @@ function parseAnimePage(html, sourceUrl) {
   const links = [...executableHtml.matchAll(/panneauAnime\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)/gi)]
     .map((match) => ({ label: textOnly(match[1]), path: match[2].replace(/^\/+|\/+$/g, '') }))
     .filter((link) => link.path.includes('/') && link.path.toLowerCase() !== 'url');
+  const vostfrLinks = links.filter((link) => /(?:^|\/)vostfr$/i.test(link.path));
   return {
     title,
     poster: absoluteUrl(poster, sourceUrl),
     description: htmlDecode(description),
     genres: [...new Set(genres)],
-    links: [...new Map(links.map((link) => [link.path, link])).values()]
+    links: [...new Map(vostfrLinks.map((link) => [link.path, link])).values()]
   };
 }
 
