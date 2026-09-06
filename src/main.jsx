@@ -51,19 +51,24 @@ const animeSourceKey = (value) => {
     return String(value).replace(/\/+$/, '').toLowerCase();
   }
 };
-const allEpisodes = (version) => version?.readers?.flatMap((reader) => reader.episodes || []) || [];
+const allEpisodes = (version) => version?.readers?.[0]?.episodes || [];
 const episodeLabel = (version, index) => version?.episodeNames?.[index] || `Épisode ${index + 1}`;
+const versionPresentation = (value = '') => {
+  const name = String(value).toUpperCase();
+  if (name.includes('VOSTFR')) return { flag: '🇯🇵', label: 'VO sous-titrée' };
+  if (/\bVF\b/.test(name)) return { flag: '🇫🇷', label: 'Version française' };
+  if (/\bVKR\b/.test(name)) return { flag: '🇰🇷', label: 'Coréen' };
+  if (/\bVA\b/.test(name)) return { flag: '🇬🇧', label: 'Anglais' };
+  if (/\bVO\b/.test(name)) return { flag: '🇯🇵', label: 'Japonais' };
+  return { flag: '🌐', label: value || 'Version' };
+};
 const versionBadge = (item) => {
   const names = [...new Set(item?.seasons?.flatMap((season) => season.versions || [])
     .map((version) => String(version.name || '').toUpperCase()).filter(Boolean))];
   const badges = names.map((name) => {
-    if (name.includes('VOSTFR')) return '🇯🇵 VO sous-titrée';
-    if (/\bVF\b/.test(name)) return '🇫🇷 Version française';
-    if (/\bVKR\b/.test(name)) return '🇰🇷 Coréen';
-    if (/\bVA\b/.test(name)) return '🇬🇧 Anglais';
-    if (/\bVO\b/.test(name)) return '🇯🇵 Japonais';
-    return null;
-  }).filter(Boolean);
+    const presentation = versionPresentation(name);
+    return `${presentation.flag} ${presentation.label}`;
+  });
   return badges.length ? badges.join(' / ') : '🇯🇵 Japonais';
 };
 const isToday = (item, date = new Date()) => {
@@ -412,7 +417,14 @@ function Planning({ anime, openAnime }) {
 function Detail({ item, openWatch, go, stats, currentUser, toggleLike }) {
   const itemStats = stats[item.id] || {};
   const liked = (itemStats.likedBy || []).includes(currentUser?.id || 'guest');
-  return <div className="page detail-page"><div className="breadcrumbs"><button onClick={() => go('home')}><HomeIcon size={14} /> Accueil</button><ChevronRight size={14} /><button onClick={() => go('catalog')}>Catalogue</button><ChevronRight size={14} /><span>{item.name}</span></div><section className="detail-hero" style={{ backgroundImage: `url(${item.backdrop || item.poster})` }}><div className="detail-shade" /><div className="detail-poster" style={{ backgroundImage: `url(${item.poster})` }} /><div className="detail-copy"><span className="status-pill">ANIME</span><h1>{item.name}</h1><div className="tag-row">{(item.genres || []).map((genre) => <span key={genre}>{genre}</span>)}</div>{item.isStudio && <p>{item.description}</p>}<div className="detail-data">{item.isStudio && <span><strong>Studio</strong>{item.studio}</span>}<span><strong>Vues</strong>{itemStats.views || 0}</span><span><strong>J'aime</strong>{itemStats.likes || 0}</span><span><strong>Saisons</strong>{item.seasons.length}</span></div><div className="detail-actions">{item.seasons[0] && <button className="primary-button" onClick={() => openWatch(item, item.seasons[0], item.seasons[0].versions[0])}><Play size={15} fill="currentColor" /> COMMENCER</button>}<button className={`icon-button ${liked ? 'is-favorite' : ''}`} onClick={() => toggleLike(item)} aria-label="J'aime"><Heart size={18} fill={liked ? 'currentColor' : 'none'} /><span className="like-count">{itemStats.likes || 0}</span></button></div></div></section><section className="seasons-section"><div className="section-heading"><h2><Layers3 size={20} /> SAISONS ET VERSIONS</h2><span className="muted">{item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div><div className="season-list">{item.seasons.map((season) => <div className="season-panel" key={season.id}><div className="season-title"><span>{season.name}</span><span className="episode-total">{Math.max(...season.versions.map((version) => allEpisodes(version).length), 0)} épisodes</span></div><div className="version-row">{season.versions.map((version) => <button key={version.name} className="version-button" onClick={() => openWatch(item, season, version)}><Play size={13} fill="currentColor" /> {version.name}<ChevronRight size={14} /></button>)}</div></div>)}</div></section></div>;
+  return <div className="page detail-page">
+    <div className="breadcrumbs"><button onClick={() => go('home')}><HomeIcon size={14} /> Accueil</button><ChevronRight size={14} /><button onClick={() => go('catalog')}>Catalogue</button><ChevronRight size={14} /><span>{item.name}</span></div>
+    <section className="detail-hero" style={{ backgroundImage: `url(${item.backdrop || item.poster})` }}>
+      <div className="detail-shade" /><div className="detail-poster" style={{ backgroundImage: `url(${item.poster})` }} />
+      <div className="detail-copy"><span className="status-pill">ANIME</span><h1>{item.name}</h1><div className="tag-row">{(item.genres || []).map((genre) => <span key={genre}>{genre}</span>)}</div>{item.isStudio && <p>{item.description}</p>}<div className="detail-data">{item.isStudio && <span><strong>Studio</strong>{item.studio}</span>}<span><strong>Vues</strong>{itemStats.views || 0}</span><span><strong>J'aime</strong>{itemStats.likes || 0}</span><span><strong>Saisons</strong>{item.seasons.length}</span></div><div className="detail-actions">{item.seasons[0] && <button className="primary-button" onClick={() => openWatch(item, item.seasons[0], item.seasons[0].versions[0])}><Play size={15} fill="currentColor" /> COMMENCER</button>}<button className={`icon-button ${liked ? 'is-favorite' : ''}`} onClick={() => toggleLike(item)} aria-label="J'aime"><Heart size={18} fill={liked ? 'currentColor' : 'none'} /><span className="like-count">{itemStats.likes || 0}</span></button></div></div>
+    </section>
+    <section className="seasons-section"><div className="section-heading"><h2><Layers3 size={20} /> SAISONS ET VERSIONS</h2><span className="muted">{item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div><div className="season-list">{item.seasons.map((season) => <div className="season-panel" key={season.id}><div className="season-title"><span>{season.name}</span><span className="episode-total">{Math.max(...season.versions.map((version) => allEpisodes(version).length), 0)} épisodes</span></div><div className="version-row">{season.versions.map((version) => { const presentation = versionPresentation(version.name); return <button key={version.name} className="version-button" onClick={() => openWatch(item, season, version)}><Play size={13} fill="currentColor" /> {presentation.flag} {presentation.label}<ChevronRight size={14} /></button>; })}</div></div>)}</div></section>
+  </div>;
 }
 
 function Watch({ item, season, version, readerIndex, setReaderIndex, episodeIndex, setEpisodeIndex, onProgress, go }) {

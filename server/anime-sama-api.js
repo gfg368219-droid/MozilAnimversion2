@@ -4,6 +4,7 @@ import { isAdminRequest } from './admin-auth.js';
 const DEFAULT_SOURCE = 'https://anime-sama.to';
 const SOURCE_HOSTS = new Set(['anime-sama.to', 'anime-sama.org', 'anime-sama.tv', 'anime-sama.fr']);
 const REQUEST_TIMEOUT_MS = 25_000;
+const VERSION_PATHS = ['vostfr', 'vf', 'vo', 'vkr', 'va'];
 
 const sendJson = (response, status, payload) => {
   response.statusCode = status;
@@ -222,6 +223,23 @@ function parseAnimePage(html, sourceUrl) {
   };
 }
 
+function expandVersionLinks(links) {
+  const expanded = [];
+  for (const link of links) {
+    const parts = link.path.split('/').filter(Boolean);
+    const currentVersion = parts.at(-1)?.toLowerCase();
+    if (!parts.length || !VERSION_PATHS.includes(currentVersion)) {
+      expanded.push(link);
+      continue;
+    }
+    const seasonPath = parts.slice(0, -1).join('/');
+    for (const versionPath of VERSION_PATHS) {
+      expanded.push({ ...link, path: `${seasonPath}/${versionPath}` });
+    }
+  }
+  return [...new Map(expanded.map((link) => [link.path, link])).values()];
+}
+
 async function parseVersion(source, basePath, seasonLabel, versionPath) {
   const pageUrl = new URL(`${basePath.replace(/\/+$/, '')}/${versionPath.replace(/^\/+/, '')}/`, source);
   const html = await fetchText(pageUrl);
@@ -257,7 +275,7 @@ export async function importAnime(query, directUrl) {
 
   const baseHtml = await fetchText(animeUrl);
   const metadata = parseAnimePage(baseHtml, animeUrl);
-  const parsedLinks = metadata.links;
+  const parsedLinks = expandVersionLinks(metadata.links);
   const versions = await Promise.all(parsedLinks.map(async (link) => {
     try {
       return await parseVersion(source, animeUrl.pathname, link.label, link.path);
