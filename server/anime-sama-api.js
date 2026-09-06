@@ -63,6 +63,86 @@ function parseSearchResults(html, query, source) {
   return results.slice(0, 12);
 }
 
+function extractCatalogueCards(html, source) {
+  const results = [];
+  const cardPattern = /<div[^>]*class=["'][^"']*\bcatalog-card\b[^"']*["'][^>]*>([\s\S]*?)(?=<div[^>]*class=["'][^"']*\bcatalog-card\b|$)/gi;
+  for (const match of html.matchAll(cardPattern)) {
+    const card = match[1];
+    const urlMatch = card.match(/<a\s+href=["']([^"']*\/catalogue\/[^"']+)["']/i);
+    const titleMatch = card.match(/<h2[^>]*class=["'][^"']*card-title[^"']*["'][^>]*>([\s\S]*?)<\/h2>/i);
+    if (!urlMatch || !titleMatch) continue;
+    const url = absoluteUrl(urlMatch[1], source);
+    if (results.some((item) => item.url === url)) continue;
+    const alternateTitles = textOnly(card.match(/<p[^>]*class=["'][^"']*alternate-titles[^"']*["'][^>]*>([\s\S]*?)<\/p>/i)?.[1] || '');
+    const poster = absoluteUrl(card.match(/<img[^>]*class=["'][^"']*card-image[^"']*["'][^>]*src=["']([^"']+)/i)?.[1] || '', url);
+    results.push({ title: textOnly(titleMatch[1]), url, poster, alternateTitles });
+  }
+  return results;
+}
+
+function planningDayToJsDay(sourceDay) {
+  const number = Number(sourceDay);
+  return number === 6 ? 0 : number + 1;
+}
+
+function normalizePlanningTime(value) {
+  const clean = textOnly(value).replace(/\s+/g, '').replace('：', ':');
+  const match = clean.match(/(\d{1,2})[h:](\d{2})/i);
+  return match ? `${String(Number(match[1])).padStart(2, '0')}:${match[2]}` : '18:00';
+}
+
+function planningDateFromTimestamp(timestamp) {
+  const number = Number(timestamp);
+  if (!Number.isFinite(number)) return '';
+  return new Date(number * 1000).toISOString().slice(0, 10);
+}
+
+function planningDateFromLabel(value) {
+  const match = textOnly(value).match(/(\d{1,2})\/(\d{1,2})/);
+  if (!match) return '';
+  const now = new Date();
+  let year = now.getUTCFullYear();
+  const month = Number(match[2]);
+  if (month === 12 && now.getUTCMonth() === 0) year -= 1;
+  if (month === 1 && now.getUTCMonth() === 11) year += 1;
+  return `${year}-${String(month).padStart(2, '0')}-${String(Number(match[1])).padStart(2, '0')}`;
+}
+
+function extractPlanningEntries(html, source) {
+  const entries = [];
+  const sectionPattern = /<div[^>]*id=["'](\d+)["'][^>]*class=["'][^"']*\bselectedRow\b[^"']*["'][^>]*>([\s\S]*?)(?=<div[^>]*id=["']\d+["'][^>]*class=["'][^"']*\bselectedRow\b|$)/gi;
+  for (const sectionMatch of html.matchAll(sectionPattern)) {
+    const sourceDay = Number(sectionMatch[1]);
+    const section = sectionMatch[2];
+    const sectionDate = planningDateFromLabel(section.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || '');
+    const cardPattern = /<div[^>]*class=["'][^"']*\banime-card-premium\b[^"']*\bplanning-card\b[^"']*["'][^>]*>([\s\S]*?)(?=<div[^>]*class=["'][^"']*\banime-card-premium\b[^"']*\bplanning-card\b|<div[^>]*class=["'][^"']*\bscan-card-premium\b[^"']*\bplanning-card\b|$)/gi;
+    for (const cardMatch of section.matchAll(cardPattern)) {
+      const card = cardMatch[1];
+      const path = card.match(/<a\s+href=["']([^"']*\/catalogue\/[^"']+)["']/i)?.[1];
+      const title = textOnly(card.match(/<h2[^>]*class=["'][^"']*card-title[^"']*["'][^>]*>([\s\S]*?)<\/h2>/i)?.[1] || '');
+      if (!path || !title) continue;
+      const url = absoluteUrl(path, source);
+      const animePath = new URL(url).pathname.match(/(\/catalogue\/[^/]+\/?)/i)?.[1];
+      if (!animePath) continue;
+      const posterValue = card.match(/<img[^>]*class=["'][^"']*card-image[^"']*["'][^>]*src=["']([^"']+)/i)?.[1] || '';
+      const timeValue = card.match(/<div[^>]*class=["'][^"']*planning-time[^"']*["'][^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>/i)?.[1] || '';
+      const timestamp = card.match(/data-release-ts=["']([^"']+)["']/i)?.[1];
+      const entry = {
+        title,
+        url: absoluteUrl(animePath, source),
+        poster: absoluteUrl(posterValue, source),
+        day: planningDayToJsDay(sourceDay),
+        time: normalizePlanningTime(timeValue),
+        date: planningDateFromTimestamp(timestamp) || sectionDate
+      };
+      const existing = entries.find((candidate) => candidate.url === entry.url);
+      if (!existing) entries.push(entry);
+      else if (!existing.date && entry.date) Object.assign(existing, entry);
+    }
+  }
+  return entries;
+}
+
 async function searchAnime(query, source) {
   const catalogueHtml = await fetchText(`${source.replace(/\/+$/, '')}/catalogue/`);
   const results = parseSearchResults(catalogueHtml, query, source);
@@ -76,6 +156,35 @@ async function searchAnime(query, source) {
     // The catalogue can use a different slug; an empty result is clearer than a guessed import.
   }
   return [];
+}
+
+async function fetchPlanning(source) {
+  const html = await fetchText(`${source.replace(/\/+$/, '')}/planning/`);
+  return extractPlanningEntries(html, source);
+}
+
+async function fetchCatalogue(source) {
+  const base = source.replace(/\/+$/, '');
+  const firstPage = await fetchText(`${base}/catalogue/`);
+  const pageNumbers = [...firstPage.matchAll(/[?&]page=(\d+)/gi)]
+    .map((match) => Number(match[1]))
+    .filter((page) => Number.isInteger(page) && page > 0);
+  const lastPage = Math.max(1, ...pageNumbers);
+  const pages = [firstPage];
+  let nextPage = 2;
+  const worker = async () => {
+    while (nextPage <= lastPage) {
+      const page = nextPage;
+      nextPage += 1;
+      try {
+        pages[page - 1] = await fetchText(`${base}/catalogue/?page=${page}`);
+      } catch (error) {
+        console.warn(`[anime-sama-api] Page catalogue ignorée (${page}): ${error.message}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(8, lastPage - 1) }, worker));
+  return pages.filter(Boolean).flatMap((page) => extractCatalogueCards(page, source));
 }
 
 function parseEpisodes(script) {
@@ -195,6 +304,16 @@ export function animeSamaApiPlugin() {
             if (!query) return sendJson(response, 400, { error: 'Le titre est obligatoire.' });
             const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
             return sendJson(response, 200, { results: await searchAnime(query, source) });
+          }
+          if (requestUrl.pathname === '/api/anime-sama/planning') {
+            const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
+            const entries = await fetchPlanning(source);
+            return sendJson(response, 200, { source, total: entries.length, entries });
+          }
+          if (requestUrl.pathname === '/api/anime-sama/catalogue') {
+            const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
+            const results = await fetchCatalogue(source);
+            return sendJson(response, 200, { source, total: results.length, results });
           }
           if (requestUrl.pathname === '/api/anime-sama/import') {
             const query = requestUrl.searchParams.get('q')?.trim();

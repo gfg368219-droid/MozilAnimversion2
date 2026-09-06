@@ -117,6 +117,9 @@ footer { position: relative; border-top: 1px solid #152334; background: #04090f;
 .admin-top-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 .anime-import-modal { width: min(720px, calc(100vw - 30px)); }
 .import-description { margin: -4px 0 18px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.bulk-import-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.bulk-import-actions button { min-height: 43px; }
+.bulk-import-note { margin-bottom: 16px; color: #71879f; font-size: 11px; line-height: 1.45; }
 .import-search-row { display: flex; gap: 10px; align-items: stretch; }
 .import-search-input { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; padding: 0 13px; border: 1px solid #203b59; border-radius: 5px; background: #071321; color: #6ea9e8; }
 .import-search-input input { width: 100%; min-width: 0; padding: 12px 0; border: 0; outline: 0; color: #fff; background: transparent; }
@@ -127,9 +130,18 @@ footer { position: relative; border-top: 1px solid #152334; background: #04090f;
 .anime-import-result strong { font-size: 13px; }
 .anime-import-result small { overflow: hidden; color: #7990a8; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .import-status { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding: 10px 12px; color: #a6d3ff; border: 1px solid #16466c; border-radius: 5px; background: #071c2d; font-size: 12px; }
+.anime-bulk-progress { margin-top: 14px; padding: 13px; border: 1px solid #254668; border-radius: 6px; background: #071625; }
+.bulk-progress-heading, .bulk-progress-stats { display: flex; justify-content: space-between; gap: 10px; color: #b9cde2; font-size: 11px; }
+.bulk-progress-heading strong { color: #e8f3ff; }
+.bulk-progress-heading span { color: #75baff; font-variant-numeric: tabular-nums; }
+.bulk-progress-track { height: 8px; overflow: hidden; margin: 11px 0 9px; border-radius: 10px; background: #15283d; }
+.bulk-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2588f4, #69d5ff); transition: width .2s ease; }
+.bulk-progress-stats { justify-content: flex-start; color: #7e97b1; }
+.bulk-progress-stats span + span::before { content: '·'; margin-right: 8px; color: #395575; }
+.bulk-progress-stats .bulk-failed { color: #ff9eaa; }
 .spin { animation: mozilanim-spin .8s linear infinite; }
 @keyframes mozilanim-spin { to { transform: rotate(360deg); } }
-@media (max-width: 760px) { .admin-top-actions, .import-search-row { display: grid; width: 100%; }.admin-top-actions button, .import-search-row button { width: 100%; }.anime-import-modal { max-height: calc(100vh - 30px); overflow-y: auto; } }
+@media (max-width: 760px) { .admin-top-actions, .import-search-row, .bulk-import-actions { display: grid; width: 100%; grid-template-columns: 1fr; }.admin-top-actions button, .import-search-row button, .bulk-import-actions button { width: 100%; }.anime-import-modal { max-height: calc(100vh - 30px); overflow-y: auto; } }
 
 /* Reprise de lecture */
 .resume-section { padding: 24px 0 12px; }
