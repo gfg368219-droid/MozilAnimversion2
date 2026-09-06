@@ -8,6 +8,12 @@ import {
 } from 'lucide-react';
 import './styles.css';
 import AnimeSamaImport from './anime-sama-import.jsx';
+import siteIcon from '../attached_assets/Screenshot_20260905-184616_Chrome_1788698732133.jpg';
+
+if (typeof document !== 'undefined') {
+  const favicon = document.querySelector('#site-favicon');
+  if (favicon) favicon.href = siteIcon;
+}
 
 const POSTER_POOL = [
   'https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=720&q=80',
@@ -126,7 +132,9 @@ function App() {
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [selectedReader, setSelectedReader] = useState(0);
   const [episodeIndex, setEpisodeIndex] = useState(0);
-  const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('mozilanim-admin') === 'true');
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem('mozilanim-admin-token') || '');
+  const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('mozilanim-admin') === 'true' && Boolean(sessionStorage.getItem('mozilanim-admin-token')));
   const [currentUser, setCurrentUser] = useState(() => {
     const id = sessionStorage.getItem('mozilanim-user');
     return id ? readJson('mozilanim-users', []).find((user) => user.id === id) || null : null;
@@ -149,6 +157,33 @@ function App() {
   useEffect(() => localStorage.setItem('mozilanim-studio-applications', JSON.stringify(applications)), [applications]);
   useEffect(() => localStorage.setItem('mozilanim-progress', JSON.stringify(progress)), [progress]);
   useEffect(() => localStorage.setItem('mozilanim-stats', JSON.stringify(stats)), [stats]);
+
+  const refreshCatalog = async () => {
+    try {
+      const response = await fetch('/api/catalog', { cache: 'no-store' });
+      if (!response.ok) throw new Error('Catalogue indisponible');
+      const payload = await response.json();
+      if (Array.isArray(payload.anime)) setAnime(payload.anime);
+      setCatalogLoaded(true);
+    } catch {
+      // Le cache local permet de continuer à consulter le site si l'API est momentanément indisponible.
+    }
+  };
+
+  useEffect(() => {
+    refreshCatalog();
+    const timer = window.setInterval(refreshCatalog, 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!catalogLoaded || !adminToken) return;
+    fetch('/api/catalog', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-mozilanim-admin': adminToken },
+      body: JSON.stringify({ anime })
+    }).catch(() => {});
+  }, [anime, catalogLoaded, adminToken]);
 
   useEffect(() => {
     const onHash = () => setView(viewFromHash(window.location.hash));
@@ -203,8 +238,10 @@ function App() {
   };
   const logout = () => {
     setIsAdmin(false);
+    setAdminToken('');
     setCurrentUser(null);
     sessionStorage.removeItem('mozilanim-admin');
+    sessionStorage.removeItem('mozilanim-admin-token');
     sessionStorage.removeItem('mozilanim-user');
     go('home');
   };
@@ -225,11 +262,11 @@ function App() {
         {view === 'watch' && selectedAnime && selectedSeason && selectedVersion && <Watch item={selectedAnime} season={selectedSeason} version={selectedVersion} readerIndex={selectedReader} setReaderIndex={setSelectedReader} episodeIndex={episodeIndex} setEpisodeIndex={setEpisodeIndex} onProgress={saveProgress} currentUser={currentUser} go={go} />}
         {view === 'planning' && <Planning anime={anime} openAnime={openAnime} />}
         {view === 'studio' && <Studio users={users} currentUser={currentUser} applications={applications} anime={anime} setAnime={setAnime} setApplications={setApplications} stats={stats} go={go} onLogin={() => { setLoginMode('login'); setLoginOpen(true); }} />}
-        {view === 'admin' && isAdmin && <Admin anime={anime} setAnime={setAnime} openAnime={openAnime} users={users} setUsers={setUsers} applications={applications} setApplications={setApplications} />}
+        {view === 'admin' && isAdmin && <Admin anime={anime} setAnime={setAnime} adminToken={adminToken} refreshCatalog={refreshCatalog} openAnime={openAnime} users={users} setUsers={setUsers} applications={applications} setApplications={setApplications} />}
         {view === 'admin' && !isAdmin && <AccessDenied onLogin={() => { setLoginMode('login'); setLoginOpen(true); }} />}
       </main>
       <Footer go={go} />
-      <LoginModal open={loginOpen} mode={loginMode} setMode={setLoginMode} onClose={() => setLoginOpen(false)} onUserSuccess={onLogin} onAdminSuccess={() => { setIsAdmin(true); sessionStorage.setItem('mozilanim-admin', 'true'); setLoginOpen(false); go('admin'); }} users={users} setUsers={setUsers} />
+      <LoginModal open={loginOpen} mode={loginMode} setMode={setLoginMode} onClose={() => setLoginOpen(false)} onUserSuccess={onLogin} onAdminSuccess={(token) => { setAdminToken(token); setIsAdmin(true); sessionStorage.setItem('mozilanim-admin', 'true'); sessionStorage.setItem('mozilanim-admin-token', token); setLoginOpen(false); go('admin'); }} users={users} setUsers={setUsers} />
     </div>
   );
 }
@@ -238,7 +275,7 @@ function Header({ view, go, isAdmin, currentUser, onLogin, logout, mobileMenu, s
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <button className="brand" onClick={() => go('home')} aria-label="Retour à l'accueil"><span className="brand-mark">M</span><span>MOZILANIM</span></button>
+        <button className="brand" onClick={() => go('home')} aria-label="Retour à l'accueil"><span className="brand-mark"><img src={siteIcon} alt="" /></span><span>MOZILANIM</span></button>
         <div className="header-divider" />
         <nav className={`main-nav ${mobileMenu ? 'open' : ''}`}>
           <button className={view === 'catalog' ? 'active' : ''} onClick={() => go('catalog')}><Film size={16} /> Catalogue</button>
@@ -291,7 +328,7 @@ function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime,
             </div>;
           })}</div>
         </section>}
-        <ContentRail title="SORTIES DU JOUR" icon={<CalendarDays size={20} />} anime={featuredPool} openAnime={openAnime} /><ContentRail title="DERNIERS ÉPISODES AJOUTÉS" icon={<Layers3 size={20} />} anime={[...featuredPool].reverse()} openAnime={openAnime} compact /><section className="info-strip"><div className="info-icon"><MonitorPlay size={20} /></div><div><strong>Un catalogue créé par vous</strong><span>Ajoutez vos anime, vos saisons et vos lecteurs depuis l’espace administration.</span></div><button onClick={() => go('catalog')}>PARCOURIR LE CATALOGUE <ArrowRight size={16} /></button></section>
+        <ContentRail title="SORTIES DU JOUR" icon={<CalendarDays size={20} />} anime={featuredPool} openAnime={openAnime} /><ContentRail title="DERNIERS ÉPISODES AJOUTÉS" icon={<Layers3 size={20} />} anime={[...featuredPool].reverse()} openAnime={openAnime} compact />
       </>}
     </div>
   );
@@ -325,8 +362,8 @@ function Planning({ anime, openAnime }) {
     item,
     day: item.schedule?.day ?? dayFromDate(item.schedule?.date),
     time: item.schedule?.time || '18:00',
-    season: item.seasons[0]
-  })).filter((entry) => entry.item.schedule?.date && entry.day !== null && entry.season && (filter === 'Tous' || filter === 'Anime'));
+    season: item.seasons.find((season) => season.id === item.schedule?.seasonId) || item.seasons.at(-1)
+  })).filter((entry) => (entry.item.schedule?.date || entry.item.schedule?.day !== undefined) && entry.day !== null && entry.season && (filter === 'Tous' || filter === 'Anime'));
   const monday = new Date(now);
   const currentDay = monday.getDay() || 7;
   monday.setDate(monday.getDate() - currentDay + 1);
@@ -386,7 +423,7 @@ function Watch({ item, season, version, readerIndex, setReaderIndex, episodeInde
   return <div className="page watch-page"><div className="breadcrumbs"><button onClick={() => go('home')}><HomeIcon size={14} /> Accueil</button><ChevronRight size={14} /><button onClick={() => go('detail')}>{item.name}</button><ChevronRight size={14} /><span>{season.name} / {version.name}</span></div><div className="watch-layout"><section className="player-column"><div className="player-header"><div><span className="eyebrow">LECTURE EN COURS</span><h1>{item.name}</h1></div><div className="episode-nav"><button disabled={safeEpisodeIndex === 0 || !episodes.length} onClick={() => selectEpisode(safeEpisodeIndex - 1)}><ChevronLeft size={18} /></button><span>{episodes.length ? episodeLabel(version, safeEpisodeIndex) : 'Aucun épisode'}</span><button disabled={!episodes.length || safeEpisodeIndex >= episodes.length - 1} onClick={() => selectEpisode(safeEpisodeIndex + 1)}><ChevronRight size={18} /></button></div></div><div className="video-frame">{hasVideo ? <video key={`${readerIndex}-${currentEpisode?.videoId || currentEpisode}`} src={videoSrc} title={`${item.name} épisode ${safeEpisodeIndex + 1}`} controls playsInline /> : currentUrl ? (isIframe ? <iframe src={currentUrl} title={`${item.name} épisode ${safeEpisodeIndex + 1}`} allowFullScreen /> : <div className="external-player"><Film size={38} /><strong>Lecteur externe</strong><span>Ce lecteur s’ouvre dans un nouvel onglet.</span><a href={currentUrl} target="_blank" rel="noreferrer">OUVRIR LE LECTEUR <ArrowRight size={15} /></a></div>) : uploadedEpisode(currentEpisode) ? <div className="external-player"><Info size={38} /><strong>Vidéo en cours de chargement</strong><span>Le lecteur direct prépare votre épisode.</span></div> : <div className="external-player"><Info size={38} /><strong>Aucune vidéo disponible</strong><span>Importez une vidéo depuis l’administration.</span></div>}</div><div className="player-tools"><div className="reader-select"><span>VERSION</span>{readers.map((reader, index) => <button key={reader.name} className={readerIndex === index ? 'selected' : ''} onClick={() => { setReaderIndex(index); setEpisodeIndex(0); }}>{reader.name}</button>)}</div><div className="watch-info"><span>{season.name}</span><span>{version.name}</span><span>{episodes.length} épisodes</span></div></div></section><aside className="episode-sidebar"><div className="sidebar-heading"><h2>Épisodes</h2><span>{episodes.length}</span></div><div className="episode-list">{episodes.map((_, index) => <button key={`${readerIndex}-${index}`} className={safeEpisodeIndex === index ? 'current' : ''} onClick={() => selectEpisode(index)}><span>{String(index + 1).padStart(2, '0')}</span><span>{episodeLabel(version, index)}</span>{safeEpisodeIndex === index && <Play size={13} fill="currentColor" />}</button>)}</div></aside></div></div>;
 }
 
-function Admin({ anime, setAnime, openAnime, users, setUsers, applications, setApplications }) {
+function Admin({ anime, setAnime, adminToken, refreshCatalog, openAnime, users, setUsers, applications, setApplications }) {
   const [showAnimeForm, setShowAnimeForm] = useState(false);
   const [showAnimeImport, setShowAnimeImport] = useState(false);
   const [seasonEditor, setSeasonEditor] = useState(null);
@@ -473,7 +510,7 @@ function Admin({ anime, setAnime, openAnime, users, setUsers, applications, setA
     notify(status === 'accepted' ? 'Candidature acceptée. Le compte est maintenant Studio Maker.' : 'Candidature refusée.');
   };
   const totalEpisodes = anime.reduce((sum, item) => sum + item.seasons.reduce((seasonSum, season) => seasonSum + season.versions.reduce((versionSum, version) => versionSum + allEpisodes(version).length, 0), 0), 0);
-  return <div className="page admin-page"><div className="admin-top"><div><span className="eyebrow"><ShieldCheck size={13} /> ESPACE SÉCURISÉ</span><h1>Administration</h1><p>Gérez le catalogue, les candidatures et les publications Studio Maker.</p></div><div className="admin-top-actions"><button className="secondary-button" onClick={() => setShowAnimeImport(true)}><Download size={17} /> IMPORTER ANIME-SAMA</button><button className="primary-button" onClick={() => setShowAnimeForm(true)}><Plus size={17} /> AJOUTER UN ANIME</button></div></div>{notice && <div className="notice"><Check size={16} /> {notice}</div>}<div className="stat-grid"><div className="stat-card"><span>ANIME</span><strong>{anime.length}</strong></div><div className="stat-card"><span>COMPTES</span><strong>{users.length}</strong><Users size={25} /></div><div className="stat-card"><span>ÉPISODES</span><strong>{totalEpisodes}</strong><MonitorPlay size={25} /></div></div><section className="manage-card application-admin-card"><div className="manage-heading"><div><h2>Candidatures Mozilanim studio</h2><p>Acceptez ou refusez les projets et regardez leur extrait directement ici.</p></div><span className="admin-badge"><Code2 size={14} /> {applications.filter((entry) => entry.status === 'pending').length} EN ATTENTE</span></div><div className="application-list">{applications.length === 0 && <div className="admin-empty">Aucune candidature pour le moment.</div>}{applications.map((application) => <div className="application-admin-item" key={application.id}><div className="application-admin-main"><div className="application-mini-poster" style={{ backgroundImage: `url(${application.animePhoto})` }} /><div><strong>{application.animeName}</strong><span>{application.studioName} · {application.email}</span><small>{application.status === 'pending' ? 'En attente de décision' : application.status === 'accepted' ? 'Acceptée · Studio Maker' : 'Refusée'}</small><button className="text-button excerpt-toggle" onClick={() => setPreviewApplication(previewApplication === application.id ? null : application.id)}><Eye size={14} /> {previewApplication === application.id ? 'MASQUER L’EXTRAIT' : 'VOIR L’EXTRAIT'}</button></div></div>{application.status === 'pending' && <div className="application-actions"><button className="primary-button" onClick={() => reviewApplication(application, 'accepted')}><Check size={14} /> ACCEPTER</button><button className="ghost-button danger-button" onClick={() => reviewApplication(application, 'refused')}><Ban size={14} /> REFUSER</button></div>}{previewApplication === application.id && <ApplicationExcerpt url={application.excerpt} title={`Extrait de ${application.animeName}`} />}</div>)}</div></section><section className="manage-card"><div className="manage-heading"><div><h2>Votre catalogue</h2><p>Ajoutez, modifiez ou supprimez les saisons depuis chaque fiche anime.</p></div><span className="admin-badge"><ShieldCheck size={14} /> ADMINISTRATEUR</span></div><div className="manage-list">{anime.map((item) => <div className="manage-item" key={item.id}><div className="manage-row"><div className="manage-poster" style={{ backgroundImage: `url(${item.poster})` }} /><div className="manage-name"><strong>{item.name}</strong><span>{item.isStudio ? `${item.studio} · Studio Maker` : `${item.seasons.length} saison${item.seasons.length > 1 ? 's' : ''}`}</span>{item.schedule?.date ? <small>Publication : {item.schedule.date} à {item.schedule.time || '18:00'}</small> : <small>Pas de date de publication</small>}</div><button className="text-button" onClick={() => setPublicationEditor(item)}><CalendarDays size={14} /> {item.schedule?.date ? 'MODIFIER LA DATE' : 'AJOUTER UNE DATE'}</button>{item.schedule?.date && <button className="text-button danger-button" onClick={() => deletePublication(item)}><CalendarDays size={14} /> SUPPRIMER LA DATE</button>}<button className="ghost-button" onClick={() => setSeasonEditor({ item, season: null })}><Plus size={15} /> AJOUTER UNE SAISON</button><button className="round-action" onClick={() => openAnime(item)} aria-label="Ouvrir"><ArrowRight size={17} /></button></div>{item.seasons.length > 0 && <div className="manage-season-list">{item.seasons.map((season) => <div className="manage-season" key={season.id}><div><strong>{season.name}</strong><span>{season.versions.length} version{season.versions.length > 1 ? 's' : ''} · {Math.max(...season.versions.map((version) => allEpisodes(version).length), 0)} épisodes</span></div><div className="season-actions"><button className="text-button" onClick={() => setEpisodeAppender({ item, season })}><Plus size={14} /> AJOUTER DES ÉPISODES</button><button className="text-button" onClick={() => setSeasonEditor({ item, season })}><Settings size={14} /> MODIFIER</button><button className="text-button danger-button" onClick={() => deleteSeason(item.id, season.id, season.name)}><Trash2 size={16} /> SUPPRIMER</button></div></div>)}</div>}</div>)}</div></section>{showAnimeForm && <AnimeForm form={form} setForm={setForm} onSubmit={addAnime} onClose={() => setShowAnimeForm(false)} />}{showAnimeImport && <AnimeSamaImport existingAnime={anime} onClose={() => setShowAnimeImport(false)} onImport={importAnime} />}{publicationEditor && <PublicationForm item={publicationEditor} onClose={() => setPublicationEditor(null)} onSave={(schedule) => savePublication(publicationEditor.id, schedule)} />}{episodeAppender && <AppendEpisodesForm item={episodeAppender.item} season={episodeAppender.season} onClose={() => setEpisodeAppender(null)} onSave={(versionIndex, readerIndex, episodes) => appendEpisodes(episodeAppender.item.id, episodeAppender.season.id, versionIndex, readerIndex, episodes)} />}{seasonEditor && <SeasonForm item={seasonEditor.item} existingSeason={seasonEditor.season} onClose={() => setSeasonEditor(null)} onSave={(season) => saveSeason(seasonEditor.item.id, season, seasonEditor.season?.id)} />}</div>;
+  return <div className="page admin-page"><div className="admin-top"><div><span className="eyebrow"><ShieldCheck size={13} /> ESPACE SÉCURISÉ</span><h1>Administration</h1><p>Gérez le catalogue, les candidatures et les publications Studio Maker.</p></div><div className="admin-top-actions"><button className="secondary-button" onClick={() => setShowAnimeImport(true)}><Download size={17} /> IMPORTER ANIME-SAMA</button><button className="primary-button" onClick={() => setShowAnimeForm(true)}><Plus size={17} /> AJOUTER UN ANIME</button></div></div>{notice && <div className="notice"><Check size={16} /> {notice}</div>}<div className="stat-grid"><div className="stat-card"><span>ANIME</span><strong>{anime.length}</strong></div><div className="stat-card"><span>COMPTES</span><strong>{users.length}</strong><Users size={25} /></div><div className="stat-card"><span>ÉPISODES</span><strong>{totalEpisodes}</strong><MonitorPlay size={25} /></div></div><section className="manage-card application-admin-card"><div className="manage-heading"><div><h2>Candidatures Mozilanim studio</h2><p>Acceptez ou refusez les projets et regardez leur extrait directement ici.</p></div><span className="admin-badge"><Code2 size={14} /> {applications.filter((entry) => entry.status === 'pending').length} EN ATTENTE</span></div><div className="application-list">{applications.length === 0 && <div className="admin-empty">Aucune candidature pour le moment.</div>}{applications.map((application) => <div className="application-admin-item" key={application.id}><div className="application-admin-main"><div className="application-mini-poster" style={{ backgroundImage: `url(${application.animePhoto})` }} /><div><strong>{application.animeName}</strong><span>{application.studioName} · {application.email}</span><small>{application.status === 'pending' ? 'En attente de décision' : application.status === 'accepted' ? 'Acceptée · Studio Maker' : 'Refusée'}</small><button className="text-button excerpt-toggle" onClick={() => setPreviewApplication(previewApplication === application.id ? null : application.id)}><Eye size={14} /> {previewApplication === application.id ? 'MASQUER L’EXTRAIT' : 'VOIR L’EXTRAIT'}</button></div></div>{application.status === 'pending' && <div className="application-actions"><button className="primary-button" onClick={() => reviewApplication(application, 'accepted')}><Check size={14} /> ACCEPTER</button><button className="ghost-button danger-button" onClick={() => reviewApplication(application, 'refused')}><Ban size={14} /> REFUSER</button></div>}{previewApplication === application.id && <ApplicationExcerpt url={application.excerpt} title={`Extrait de ${application.animeName}`} />}</div>)}</div></section><section className="manage-card"><div className="manage-heading"><div><h2>Catalogue partagé</h2><p>Seuls les administrateurs ajoutent des anime. Les visiteurs voient automatiquement tout le catalogue publié.</p></div><span className="admin-badge"><ShieldCheck size={14} /> ADMINISTRATEUR</span></div><div className="manage-list">{anime.map((item) => <div className="manage-item" key={item.id}><div className="manage-row"><div className="manage-poster" style={{ backgroundImage: `url(${item.poster})` }} /><div className="manage-name"><strong>{item.name}</strong><span>{item.isStudio ? `${item.studio} · Studio Maker` : `${item.seasons.length} saison${item.seasons.length > 1 ? 's' : ''}`}</span>{item.schedule?.date ? <small>Publication : {item.schedule.date} à {item.schedule.time || '18:00'}</small> : <small>Pas de date de publication</small>}</div><button className="text-button" onClick={() => setPublicationEditor(item)}><CalendarDays size={14} /> {item.schedule?.date ? 'MODIFIER LA DATE' : 'AJOUTER UNE DATE'}</button>{item.schedule?.date && <button className="text-button danger-button" onClick={() => deletePublication(item)}><CalendarDays size={14} /> SUPPRIMER LA DATE</button>}<button className="ghost-button" onClick={() => setSeasonEditor({ item, season: null })}><Plus size={15} /> AJOUTER UNE SAISON</button><button className="round-action" onClick={() => openAnime(item)} aria-label="Ouvrir"><ArrowRight size={17} /></button></div>{item.seasons.length > 0 && <div className="manage-season-list">{item.seasons.map((season) => <div className="manage-season" key={season.id}><div><strong>{season.name}</strong><span>{season.versions.length} version{season.versions.length > 1 ? 's' : ''} · {Math.max(...season.versions.map((version) => allEpisodes(version).length), 0)} épisodes</span></div><div className="season-actions"><button className="text-button" onClick={() => setEpisodeAppender({ item, season })}><Plus size={14} /> AJOUTER DES ÉPISODES</button><button className="text-button" onClick={() => setSeasonEditor({ item, season })}><Settings size={14} /> MODIFIER</button><button className="text-button danger-button" onClick={() => deleteSeason(item.id, season.id, season.name)}><Trash2 size={16} /> SUPPRIMER</button></div></div>)}</div>}</div>)}</div></section>{showAnimeForm && <AnimeForm form={form} setForm={setForm} onSubmit={addAnime} onClose={() => setShowAnimeForm(false)} />}{showAnimeImport && <AnimeSamaImport existingAnime={anime} adminToken={adminToken} onClose={() => setShowAnimeImport(false)} onRefresh={refreshCatalog} onImport={importAnime} />}{publicationEditor && <PublicationForm item={publicationEditor} onClose={() => setPublicationEditor(null)} onSave={(schedule) => savePublication(publicationEditor.id, schedule)} />}{episodeAppender && <AppendEpisodesForm item={episodeAppender.item} season={episodeAppender.season} onClose={() => setEpisodeAppender(null)} onSave={(versionIndex, readerIndex, episodes) => appendEpisodes(episodeAppender.item.id, episodeAppender.season.id, versionIndex, readerIndex, episodes)} />}{seasonEditor && <SeasonForm item={seasonEditor.item} existingSeason={seasonEditor.season} onClose={() => setSeasonEditor(null)} onSave={(season) => saveSeason(seasonEditor.item.id, season, seasonEditor.season?.id)} />}</div>;
 }
 
 function ApplicationExcerpt({ url, title }) {
@@ -652,7 +689,7 @@ function LoginModal({ open, mode, setMode, onClose, onUserSuccess, onAdminSucces
   const [error, setError] = useState('');
   useEffect(() => { if (open) setError(''); }, [open, mode]);
   if (!open) return null;
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     const normalizedEmail = email.trim().toLowerCase();
     if (mode === 'register') {
@@ -662,7 +699,20 @@ function LoginModal({ open, mode, setMode, onClose, onUserSuccess, onAdminSucces
       const account = { id: `user-${Date.now()}`, name: name.trim(), email: normalizedEmail, password, role: 'user', createdAt: Date.now() };
       setUsers((current) => [...current, account]); onUserSuccess(account); return;
     }
-    if (normalizedEmail === 'ysoeok@gmail.com' && password === '#Real2012mvogo') { onAdminSuccess(); return; }
+    try {
+      const adminResponse = await fetch('/api/admin/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, password })
+      });
+      if (adminResponse.ok) {
+        const adminPayload = await adminResponse.json();
+        onAdminSuccess(adminPayload.token);
+        return;
+      }
+    } catch {
+      // The local account fallback below still works if the admin API is unavailable.
+    }
     const account = users.find((user) => user.email === normalizedEmail && user.password === password);
     if (!account) return setError('Email ou mot de passe incorrect.');
     onUserSuccess(account);
@@ -675,7 +725,7 @@ function AccessDenied({ onLogin, studio = false }) {
 }
 
 function Footer({ go }) {
-  return <footer id="footer"><div className="footer-inner"><div className="footer-brand"><span className="brand-mark">M</span><strong>MOZILANIM</strong><p>Votre catalogue d’animés, simplement.</p></div><div className="footer-links"><button onClick={() => go('catalog')}>Catalogue</button><button onClick={() => go('studio')}>Mozilanim studio</button><button onClick={() => go('planning')}>Planning</button><span>Signaler un lien</span><span>Conditions</span></div><div className="footer-copy">© 2026 MOZILANIM</div></div><button className="back-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><ArrowUp size={17} /></button></footer>;
+  return <footer id="footer"><div className="footer-inner"><div className="footer-brand"><span className="brand-mark"><img src={siteIcon} alt="" /></span><strong>MOZILANIM</strong><p>Votre catalogue d’animés, simplement.</p></div><div className="footer-links"><button onClick={() => go('catalog')}>Catalogue</button><button onClick={() => go('studio')}>Mozilanim studio</button><button onClick={() => go('planning')}>Planning</button><span>Signaler un lien</span><span>Conditions</span></div><div className="footer-copy">© 2026 MOZILANIM</div></div><button className="back-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><ArrowUp size={17} /></button></footer>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);

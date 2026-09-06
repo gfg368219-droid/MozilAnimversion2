@@ -39,7 +39,8 @@ button:disabled { cursor: not-allowed; opacity: .4; }
 .topbar { height: 64px; background: rgba(2, 4, 7, .98); border-bottom: 1px solid #182231; position: sticky; top: 0; z-index: 20; }
 .topbar-inner { max-width: 1500px; height: 100%; margin: 0 auto; padding: 0 28px; display: flex; align-items: center; gap: 22px; }
 .brand { display: flex; align-items: center; gap: 9px; color: #fff; border: 0; background: transparent; font-size: 19px; font-weight: 800; letter-spacing: -.06em; padding: 0; white-space: nowrap; }
-.brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; color: #fff; border: 2px solid var(--blue); border-radius: 50%; font-family: 'Barlow Condensed'; font-size: 21px; font-style: italic; letter-spacing: 0; }
+.brand-mark { display: inline-grid; place-items: center; width: 32px; height: 30px; overflow: hidden; border: 1px solid var(--blue); border-radius: 7px; background: #fff; flex: 0 0 auto; }
+.brand-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .header-divider { width: 1px; height: 25px; background: #1d2836; }
 .header-search, .catalog-search { display: flex; align-items: center; gap: 9px; border: 1px solid #1b2a3d; background: #07101b; border-radius: 7px; color: #4873a8; }
 .header-search { order: 3; margin-left: auto; width: 255px; padding: 9px 12px; }
@@ -231,6 +232,12 @@ footer { position: relative; border-top: 1px solid #152334; background: #04090f;
 .application-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .application-actions .primary-button, .application-actions .ghost-button { padding: 9px 11px; font-size: 10px; }
 .admin-empty { padding: 24px 0; color: #74879d; font-size: 12px; }
+.import-error-list { display: grid; gap: 8px; margin-top: 14px; padding: 13px; border: 1px solid #633247; border-radius: 5px; background: #1b0d19; color: #e5bbca; font-size: 12px; }
+.import-error-list > strong { color: #ff9bb4; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.import-error-list > div { display: grid; gap: 3px; padding: 7px 0; border-top: 1px solid rgba(255, 155, 180, .13); }
+.import-error-list > div span { color: #fff; font-weight: 700; }
+.import-error-list > div small { color: #b990a0; line-height: 1.4; }
+.import-error-list .secondary-button { justify-self: start; margin-top: 3px; }
 .switch-login { margin-top: 14px; color: #72b4ff; background: transparent; border: 0; font-size: 11px; font-weight: 700; }
 .switch-login:hover { color: #b8dcff; }
 .footer-links button { color: inherit; background: transparent; border: 0; padding: 0; font-size: inherit; }

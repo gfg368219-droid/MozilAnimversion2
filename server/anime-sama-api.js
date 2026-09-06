@@ -1,4 +1,5 @@
 import { URL } from 'node:url';
+import { isAdminRequest } from './admin-auth.js';
 
 const DEFAULT_SOURCE = 'https://anime-sama.to';
 const SOURCE_HOSTS = new Set(['anime-sama.to', 'anime-sama.org', 'anime-sama.tv', 'anime-sama.fr']);
@@ -143,7 +144,7 @@ function extractPlanningEntries(html, source) {
   return entries;
 }
 
-async function searchAnime(query, source) {
+export async function searchAnime(query, source) {
   const catalogueHtml = await fetchText(`${source.replace(/\/+$/, '')}/catalogue/`);
   const results = parseSearchResults(catalogueHtml, query, source);
   if (results.length) return results;
@@ -158,12 +159,12 @@ async function searchAnime(query, source) {
   return [];
 }
 
-async function fetchPlanning(source) {
+export async function fetchPlanning(source) {
   const html = await fetchText(`${source.replace(/\/+$/, '')}/planning/`);
   return extractPlanningEntries(html, source);
 }
 
-async function fetchCatalogue(source) {
+export async function fetchCatalogue(source) {
   const base = source.replace(/\/+$/, '');
   const firstPage = await fetchText(`${base}/catalogue/`);
   const pageNumbers = [...firstPage.matchAll(/[?&]page=(\d+)/gi)]
@@ -242,7 +243,7 @@ async function parseVersion(source, basePath, seasonLabel, versionPath) {
   };
 }
 
-async function importAnime(query, directUrl) {
+export async function importAnime(query, directUrl) {
   const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
   const sourceUrl = directUrl ? validSourceUrl(directUrl) : null;
   let animeUrl = sourceUrl;
@@ -255,7 +256,7 @@ async function importAnime(query, directUrl) {
 
   const baseHtml = await fetchText(animeUrl);
   const metadata = parseAnimePage(baseHtml, animeUrl);
-  const parsedLinks = metadata.links.length ? metadata.links : [{ label: 'Saison 1', path: 'saison1/vostfr' }];
+  const parsedLinks = metadata.links;
   const versions = await Promise.all(parsedLinks.map(async (link) => {
     try {
       return await parseVersion(source, animeUrl.pathname, link.label, link.path);
@@ -271,7 +272,7 @@ async function importAnime(query, directUrl) {
     if (!saved.versions.some((version) => version.name === entry.version.name)) saved.versions.push(entry.version);
     seasons.set(seasonId, saved);
   }
-  if (!seasons.size) throw new Error('Aucun épisode ni lecteur exploitable n’a été trouvé.');
+  if (!seasons.size) throw new Error('Aucune saison exploitable n’a été trouvée sur cette fiche Anime-Sama.');
   const slug = animeUrl.pathname.match(/\/catalogue\/([^/]+)/i)?.[1] || query.trim();
   return {
     id: `anime-sama-${slug}`,
@@ -291,6 +292,39 @@ async function importAnime(query, directUrl) {
   };
 }
 
+export async function handleAnimeSamaRequest(request, response, requestUrl = new URL(request.url || '/', 'http://localhost')) {
+  try {
+    if (requestUrl.pathname === '/api/anime-sama/search') {
+      const query = requestUrl.searchParams.get('q')?.trim();
+      if (!query) return sendJson(response, 400, { error: 'Le titre est obligatoire.' });
+      const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
+      return sendJson(response, 200, { results: await searchAnime(query, source) });
+    }
+    if (requestUrl.pathname === '/api/anime-sama/planning') {
+      const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
+      const entries = await fetchPlanning(source);
+      return sendJson(response, 200, { source, total: entries.length, entries });
+    }
+    if (requestUrl.pathname === '/api/anime-sama/catalogue') {
+      const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
+      const results = await fetchCatalogue(source);
+      return sendJson(response, 200, { source, total: results.length, results });
+    }
+    if (requestUrl.pathname === '/api/anime-sama/import') {
+      if (!isAdminRequest(request)) return sendJson(response, 401, { error: 'Session administrateur requise pour importer.' });
+      const query = requestUrl.searchParams.get('q')?.trim();
+      const sourceUrl = requestUrl.searchParams.get('url')?.trim();
+      if (!query && !sourceUrl) return sendJson(response, 400, { error: 'Le titre ou l’URL Anime-Sama est obligatoire.' });
+      const item = await importAnime(query || '', sourceUrl);
+      return sendJson(response, 200, { item });
+    }
+    return sendJson(response, 404, { error: 'Route Anime-Sama introuvable.' });
+  } catch (error) {
+    console.error('[anime-sama-api]', error);
+    return sendJson(response, 502, { error: error.message || 'Import Anime-Sama impossible.' });
+  }
+}
+
 export function animeSamaApiPlugin() {
   return {
     name: 'mozilanim-anime-sama-api',
@@ -298,35 +332,7 @@ export function animeSamaApiPlugin() {
       server.middlewares.use(async (request, response, next) => {
         const requestUrl = new URL(request.url || '/', 'http://localhost');
         if (!requestUrl.pathname.startsWith('/api/anime-sama/')) return next();
-        try {
-          if (requestUrl.pathname === '/api/anime-sama/search') {
-            const query = requestUrl.searchParams.get('q')?.trim();
-            if (!query) return sendJson(response, 400, { error: 'Le titre est obligatoire.' });
-            const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
-            return sendJson(response, 200, { results: await searchAnime(query, source) });
-          }
-          if (requestUrl.pathname === '/api/anime-sama/planning') {
-            const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
-            const entries = await fetchPlanning(source);
-            return sendJson(response, 200, { source, total: entries.length, entries });
-          }
-          if (requestUrl.pathname === '/api/anime-sama/catalogue') {
-            const source = process.env.ANIME_SAMA_SOURCE_URL || DEFAULT_SOURCE;
-            const results = await fetchCatalogue(source);
-            return sendJson(response, 200, { source, total: results.length, results });
-          }
-          if (requestUrl.pathname === '/api/anime-sama/import') {
-            const query = requestUrl.searchParams.get('q')?.trim();
-            const sourceUrl = requestUrl.searchParams.get('url')?.trim();
-            if (!query && !sourceUrl) return sendJson(response, 400, { error: 'Le titre ou l’URL Anime-Sama est obligatoire.' });
-            const item = await importAnime(query || '', sourceUrl);
-            return sendJson(response, 200, { item });
-          }
-          return sendJson(response, 404, { error: 'Route Anime-Sama introuvable.' });
-        } catch (error) {
-          console.error('[anime-sama-api]', error);
-          return sendJson(response, 502, { error: error.message || 'Import Anime-Sama impossible.' });
-        }
+        return handleAnimeSamaRequest(request, response, requestUrl);
       });
     }
   };

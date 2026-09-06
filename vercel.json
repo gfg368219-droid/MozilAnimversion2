@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "api/[[...path]].js": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/import-jobs/worker",
+      "schedule": "* * * * *"
+    }
+  ]
+}

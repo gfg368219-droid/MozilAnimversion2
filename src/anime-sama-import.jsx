@@ -1,18 +1,6 @@
 import React, { useState } from 'react';
 import { CalendarDays, Check, Download, LoaderCircle, Search, X } from 'lucide-react';
 
-const BULK_CONCURRENCY = 12;
-
-function sourceKey(value) {
-  if (!value) return '';
-  try {
-    const parsed = new URL(value);
-    return `${parsed.hostname}${parsed.pathname}`.replace(/\/+$/, '').toLowerCase();
-  } catch {
-    return String(value).replace(/\/+$/, '').toLowerCase();
-  }
-}
-
 function ImportRow({ result, selected, onSelect }) {
   return (
     <button type="button" className={`anime-import-result ${selected ? 'selected' : ''}`} onClick={onSelect}>
@@ -46,7 +34,7 @@ function ProgressPanel({ progress }) {
   );
 }
 
-export default function AnimeSamaImport({ onClose, onImport, existingAnime = [] }) {
+export default function AnimeSamaImport({ onClose, onImport, onRefresh, adminToken = '' }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -54,6 +42,7 @@ export default function AnimeSamaImport({ onClose, onImport, existingAnime = [] 
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [progress, setProgress] = useState(null);
+  const [jobId, setJobId] = useState('');
 
   const search = async (event) => {
     event?.preventDefault();
@@ -69,7 +58,7 @@ export default function AnimeSamaImport({ onClose, onImport, existingAnime = [] 
     setSelected(null);
     try {
       const isUrl = /^https?:\/\/[^/]+\/catalogue\//i.test(value);
-      const response = await fetch(isUrl ? `/api/anime-sama/import?url=${encodeURIComponent(value)}` : `/api/anime-sama/search?q=${encodeURIComponent(value)}`);
+      const response = await fetch(isUrl ? `/api/anime-sama/import?url=${encodeURIComponent(value)}` : `/api/anime-sama/search?q=${encodeURIComponent(value)}`, isUrl ? { headers: { 'x-mozilanim-admin': adminToken } } : undefined);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'La recherche Anime-Sama a échoué.');
       if (isUrl) {
@@ -91,7 +80,7 @@ export default function AnimeSamaImport({ onClose, onImport, existingAnime = [] 
     setError('');
     setStatus('Récupération des saisons, versions, épisodes et lecteurs…');
     try {
-      const response = await fetch(`/api/anime-sama/import?url=${encodeURIComponent(selected.url)}`);
+      const response = await fetch(`/api/anime-sama/import?url=${encodeURIComponent(selected.url)}`, { headers: { 'x-mozilanim-admin': adminToken } });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'L’import Anime-Sama a échoué.');
       onImport(payload.item);
@@ -103,64 +92,70 @@ export default function AnimeSamaImport({ onClose, onImport, existingAnime = [] 
     }
   };
 
+  const readJob = async (id) => {
+    const response = await fetch(`/api/import-jobs/${id}`, { cache: 'no-store' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Impossible de lire l’import.');
+    return payload.job;
+  };
+
+  const watchJob = async (id) => {
+    const job = await readJob(id);
+    setProgress({
+      running: !['completed', 'completed_with_errors', 'failed'].includes(job.status),
+      total: job.total,
+      completed: job.completed,
+      imported: job.imported,
+      skipped: job.skipped,
+      failed: job.failed,
+      message: job.status === 'completed_with_errors' ? 'Import terminé avec des erreurs.' : job.status === 'failed' ? 'Import arrêté.' : 'Importation en cours…',
+      errors: job.errors || []
+    });
+    if (!['completed', 'completed_with_errors', 'failed'].includes(job.status)) {
+      window.setTimeout(() => watchJob(id).catch((watchError) => setError(watchError.message)), 2000);
+    } else {
+      await onRefresh?.();
+      setStatus(job.status === 'completed' ? 'Import terminé. Le catalogue public est à jour.' : 'Import terminé : réimportez les erreurs définitives ci-dessous.');
+      setBusy(false);
+    }
+    return job;
+  };
+
   const runBulkImport = async (kind) => {
     setBusy(true);
     setError('');
     setStatus('');
     setResults([]);
     setSelected(null);
-    setProgress({ running: true, total: 0, completed: 0, imported: 0, skipped: 0, failed: 0, message: 'Lecture de la source Anime-Sama…' });
+    setProgress({ running: true, total: 0, completed: 0, imported: 0, skipped: 0, failed: 0, message: 'Mise en file de l’import…', errors: [] });
     try {
-      const response = await fetch(`/api/anime-sama/${kind}`);
+      const response = await fetch('/api/import-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-mozilanim-admin': adminToken },
+        body: JSON.stringify({ kind })
+      });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'La liste Anime-Sama est indisponible.');
-      const entries = kind === 'planning' ? payload.entries || [] : payload.results || [];
-      const known = new Set(existingAnime.flatMap((item) => [sourceKey(item.sourceUrl), `name:${item.name?.trim().toLocaleLowerCase('fr')}`]).filter(Boolean));
-      const uniqueEntries = [];
-      let skipped = 0;
-      for (const entry of entries) {
-        const key = sourceKey(entry.url);
-        const nameKey = `name:${entry.title?.trim().toLocaleLowerCase('fr')}`;
-        if (!key || known.has(key) || known.has(nameKey) || uniqueEntries.some((candidate) => sourceKey(candidate.url) === key)) {
-          skipped += 1;
-          continue;
-        }
-        uniqueEntries.push(entry);
-      }
-      setProgress({ running: true, total: entries.length, completed: skipped, imported: 0, skipped, failed: 0, message: `Import de ${uniqueEntries.length} anime…` });
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < uniqueEntries.length) {
-          const entry = uniqueEntries[cursor];
-          cursor += 1;
-          try {
-            const importResponse = await fetch(`/api/anime-sama/import?url=${encodeURIComponent(entry.url)}`);
-            const importPayload = await importResponse.json();
-            if (!importResponse.ok) throw new Error(importPayload.error || 'Import impossible');
-            const item = kind === 'planning'
-              ? { ...importPayload.item, schedule: entry.date ? { date: entry.date, time: entry.time || '18:00', day: entry.day } : { day: entry.day, time: entry.time || '18:00' } }
-              : importPayload.item;
-            const wasImported = onImport(item, { skipExisting: true, silent: true });
-            setProgress((current) => ({
-              ...current,
-              completed: current.completed + 1,
-              imported: current.imported + (wasImported === false ? 0 : 1),
-              skipped: current.skipped + (wasImported === false ? 1 : 0)
-            }));
-          } catch (importError) {
-            setProgress((current) => ({ ...current, completed: current.completed + 1, failed: current.failed + 1 }));
-          }
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(BULK_CONCURRENCY, Math.max(uniqueEntries.length, 1)) }, worker));
-      setProgress((current) => ({ ...current, running: false, message: 'Importation terminée.' }));
-      setStatus(kind === 'planning' ? 'Les anime du planning ont été ajoutés au catalogue et au planning du site.' : 'Le catalogue Anime-Sama a été importé sans doublons.');
+      if (!response.ok) throw new Error(payload.error || 'Impossible de mettre l’import en file.');
+      setJobId(payload.job.id);
+      await watchJob(payload.job.id);
     } catch (bulkError) {
-      setProgress(null);
       setError(bulkError.message || 'L’import automatique Anime-Sama a échoué.');
-    } finally {
       setBusy(false);
     }
+  };
+
+  const retryFailed = async () => {
+    if (!jobId) return;
+    setBusy(true);
+    setError('');
+    const response = await fetch(`/api/import-jobs/${jobId}/retry-failed`, { method: 'POST', headers: { 'x-mozilanim-admin': adminToken } });
+    const payload = await response.json();
+    if (!response.ok) {
+      setError(payload.error || 'Impossible de relancer les erreurs.');
+      setBusy(false);
+      return;
+    }
+    await watchJob(jobId);
   };
 
   return (
@@ -175,7 +170,7 @@ export default function AnimeSamaImport({ onClose, onImport, existingAnime = [] 
           <button type="button" className="secondary-button" disabled={busy} onClick={() => runBulkImport('planning')}><CalendarDays size={16} /> IMPORTER LE PLANNING</button>
           <button type="button" className="secondary-button" disabled={busy} onClick={() => runBulkImport('catalogue')}><Download size={16} /> IMPORTER TOUT LE CATALOGUE</button>
         </div>
-        <div className="bulk-import-note">L’import utilise plusieurs requêtes en parallèle avec une limite de sécurité. La vitesse réelle dépend du serveur Anime-Sama et du volume d’épisodes.</div>
+        <div className="bulk-import-note">L’import est traité par le serveur : vous pouvez fermer cette fenêtre ou quitter le site, il continuera avec jusqu’à 5 tentatives par anime. Les erreurs définitives restent réimportables.</div>
         <div className="import-search-row">
           <div className="import-search-input"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ex. Solo Leveling ou URL Anime-Sama" /></div>
           <button className="primary-button" type="submit" disabled={busy}><Search size={15} /> RECHERCHER</button>
@@ -183,6 +178,7 @@ export default function AnimeSamaImport({ onClose, onImport, existingAnime = [] 
         {status && <div className="import-status"><Check size={16} /> {status}</div>}
         {error && <div className="form-error">{error}</div>}
         <ProgressPanel progress={progress} />
+        {progress?.errors?.length > 0 && <div className="import-error-list"><strong>Erreurs à réimporter</strong>{progress.errors.map((entry) => <div key={entry.id}><span>{entry.title}</span><small>{entry.error}</small></div>)}<button type="button" className="secondary-button" disabled={busy} onClick={retryFailed}><Download size={15} /> IMPORTER LES ERREURS</button></div>}
         {!!results.length && <div className="anime-import-results">{results.map((result) => <ImportRow key={result.url} result={result} selected={selected?.url === result.url} onSelect={() => setSelected(result)} />)}</div>}
         <div className="modal-actions">
           <button type="button" className="ghost-button" onClick={onClose}>FERMER</button>
