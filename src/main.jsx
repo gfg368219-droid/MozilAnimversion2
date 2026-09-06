@@ -65,11 +65,8 @@ const versionPresentation = (value = '') => {
 const versionBadge = (item) => {
   const names = [...new Set(item?.seasons?.flatMap((season) => season.versions || [])
     .map((version) => String(version.name || '').toUpperCase()).filter(Boolean))];
-  const badges = names.map((name) => {
-    const presentation = versionPresentation(name);
-    return `${presentation.flag} ${presentation.label}`;
-  });
-  return badges.length ? badges.join(' / ') : '🇯🇵 Japonais';
+  const flags = [...new Set(names.map((name) => versionPresentation(name).flag))];
+  return flags.length ? flags.join(' / ') : '🇯🇵';
 };
 const isToday = (item, date = new Date()) => {
   const schedule = item.schedule;
