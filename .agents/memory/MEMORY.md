@@ -3,3 +3,4 @@
 - [Planning de publication](publication-planning.md) — un anime sans date attribuée par l’administration reste absent du planning public.
 - [Import GitHub privé](github-import.md) — via le proxy GitHub, importer les fichiers de l’arborescence quand les endpoints d’archive sont bloqués.
 - [Lockfile npm de déploiement](deployment-npm-lock.md) — les URLs de paquets doivent rester publiques pour que le builder externe puisse installer les dépendances.
+- [Liens Anime-Sama](anime-sama-import-parsing.md) — ignorer les exemples panneauAnime placés dans les commentaires JavaScript, sinon de fausses saisons sont importées.

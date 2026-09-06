@@ -201,15 +201,16 @@ function parseEpisodes(script) {
 }
 
 function parseAnimePage(html, sourceUrl) {
+  const executableHtml = html.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const title = textOnly(html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || '')
     .replace(/\s*\|.*$/, '')
     .trim();
   const poster = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)/i)?.[1] || '';
   const description = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)/i)?.[1] || '';
-  const genres = [...html.matchAll(/<span[^>]*class=["'][^"']*genre-tag[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi)]
+  const genres = [...executableHtml.matchAll(/<span[^>]*class=["'][^"']*genre-tag[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi)]
     .map((match) => textOnly(match[1]))
     .filter((genre) => genre && genre !== '…');
-  const links = [...html.matchAll(/panneauAnime\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)/gi)]
+  const links = [...executableHtml.matchAll(/panneauAnime\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)/gi)]
     .map((match) => ({ label: textOnly(match[1]), path: match[2].replace(/^\/+|\/+$/g, '') }))
     .filter((link) => link.path.includes('/') && link.path.toLowerCase() !== 'url');
   return {
@@ -288,7 +289,9 @@ export async function importAnime(query, directUrl) {
     source: 'anime-sama',
     sourceUrl: animeUrl.toString(),
     importedAt: Date.now(),
-    seasons: [...seasons.values()].sort((a, b) => Number(a.id.split('-')[1]) - Number(b.id.split('-')[1]))
+    seasons: [...seasons.values()].sort((a, b) => Number(a.id.split('-')[1]) - Number(b.id.split('-')[1])),
+    updatedAt: Date.now(),
+    lastEpisodeAt: Date.now()
   };
 }
 

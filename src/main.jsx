@@ -53,6 +53,21 @@ const animeSourceKey = (value) => {
 };
 const allEpisodes = (version) => version?.readers?.flatMap((reader) => reader.episodes || []) || [];
 const episodeLabel = (version, index) => version?.episodeNames?.[index] || `Épisode ${index + 1}`;
+const firstVersionName = (item) => item?.seasons?.flatMap((season) => season.versions || []).map((version) => version.name).find(Boolean) || 'VOSTFR';
+const versionBadge = (item) => {
+  const name = firstVersionName(item).toUpperCase();
+  const label = name.includes('VOSTFR') ? 'VOSTFR' : name.includes('VF') ? 'VF' : name;
+  return { flag: label === 'VF' || label.includes('FR') ? '🇫🇷' : '🇯🇵', label };
+};
+const isToday = (item, date = new Date()) => {
+  const schedule = item.schedule;
+  if (!schedule) return false;
+  if (schedule.date) {
+    const today = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return schedule.date === today;
+  }
+  return schedule.day !== undefined && Number(schedule.day) === date.getDay();
+};
 const viewFromHash = (hash) => hash.replace(/^#\/?/, '') || 'home';
 const dayFromDate = (date) => {
   if (!date) return null;
@@ -295,6 +310,7 @@ function Header({ view, go, isAdmin, currentUser, onLogin, logout, mobileMenu, s
 function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime, setProgress, go }) {
   const [featuredPool, setFeaturedPool] = useState([]);
   const [featuredIndex, setFeaturedIndex] = useState(0);
+  const [today, setToday] = useState(new Date());
   useEffect(() => {
     const shuffled = [...anime].sort(() => Math.random() - 0.5).slice(0, 5);
     setFeaturedPool(shuffled);
@@ -305,6 +321,10 @@ function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime,
     const timer = window.setInterval(() => setFeaturedIndex((current) => (current + 1) % featuredPool.length), 7000);
     return () => window.clearInterval(timer);
   }, [featuredPool.length]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setToday(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const progressItems = anime.map((item) => {
     const saved = progress[`${currentUser?.id || 'guest'}:${item.id}`];
     return saved ? { item, saved } : null;
@@ -313,7 +333,7 @@ function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime,
   return (
     <div className="page home-page">
       {!featured ? <div className="empty-home"><section className="empty-home-card"><div className="empty-home-icon"><Film size={30} /></div><span className="eyebrow">MOZILANIM / CATALOGUE VIDE</span><h1>Votre catalogue commence ici</h1><p>Aucun anime de démonstration n’est installé. Connectez-vous à l’administration pour publier un projet.</p><div className="empty-home-actions"><button className="primary-button" onClick={() => go('admin')}><ShieldCheck size={16} /> OUVRIR L’ADMINISTRATION</button></div></section></div> : <>
-         <section className="hero-wrap"><div className="hero" style={{ backgroundImage: `url(${featured.backdrop || featured.poster})` }}><div className="hero-shade" /><div className="hero-content"><span className="status-pill"><span className="live-dot" /> ANIME</span><h1>{featured.name.toUpperCase()}</h1><div className="tag-row">{(featured.genres || []).map((genre) => <span key={genre}>{genre}</span>)}</div>{featured.isStudio && <p>{featured.description}</p>}<div className="hero-actions"><button className="primary-button" onClick={() => featured.seasons[0] && openWatch(featured, featured.seasons[0], featured.seasons[0].versions[0])}><Play size={14} fill="currentColor" /> VISIONNER</button></div></div><div className="hero-dots">{featuredPool.map((item, index) => <button key={item.id} className={index === featuredIndex ? 'selected' : ''} onClick={() => setFeaturedIndex(index)} aria-label={`Afficher ${item.name}`} />)}</div></div></section>
+        <section className="hero-wrap"><div className="hero" style={{ backgroundImage: `url(${featured.backdrop || featured.poster})` }}><div className="hero-shade" /><div className="hero-content"><span className="status-pill">ANIME</span><h1>{featured.name.toUpperCase()}</h1><div className="tag-row">{(featured.genres || []).map((genre) => <span key={genre}>{genre}</span>)}</div>{featured.isStudio && <p>{featured.description}</p>}<div className="hero-actions"><button className="primary-button" onClick={() => featured.seasons[0] && openWatch(featured, featured.seasons[0], featured.seasons[0].versions[0])}><Play size={14} fill="currentColor" /> VISIONNER</button></div></div><div className="hero-dots">{featuredPool.map((item, index) => <button key={item.id} className={index === featuredIndex ? 'selected' : ''} onClick={() => setFeaturedIndex(index)} aria-label={`Afficher ${item.name}`} />)}</div></div></section>
         {progressItems.length > 0 && <section className="resume-section">
           <div className="resume-heading"><h2><Clock3 size={20} /> REPRENEZ VOTRE VISIONNAGE</h2><div className="resume-line" /></div>
           <div className="resume-grid">{progressItems.map(({ item, saved }) => {
@@ -322,24 +342,25 @@ function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime,
             const episodeCount = allEpisodes(version).length;
             if (!season || !version || !episodeCount) return null;
             return <div className="resume-card" key={item.id}>
-              <button className="resume-poster" style={{ backgroundImage: `url(${item.poster})` }} onClick={() => resumeAnime(item)} aria-label={`Reprendre ${item.name}`}><span className="resume-type">Animé</span><span className="resume-flag">JP</span><span className="resume-play"><Play size={22} fill="currentColor" /></span></button>
+              <button className="resume-poster" style={{ backgroundImage: `url(${item.poster})` }} onClick={() => resumeAnime(item)} aria-label={`Reprendre ${item.name}`}><span className="resume-type">Anime</span><span className="resume-flag"><span>{versionBadge(item).flag}</span><b>{versionBadge(item).label}</b></span><span className="resume-play"><Play size={22} fill="currentColor" /></span></button>
               <div className="resume-copy"><h3>{item.name}</h3><div className="resume-progress"><span style={{ width: `${Math.min(((saved.episodeIndex + 1) / episodeCount) * 100, 100)}%` }} /></div><button onClick={() => resumeAnime(item)}><MonitorPlay size={16} /> {season.name} {episodeLabel(version, saved.episodeIndex)}</button></div>
               <button className="resume-remove" onClick={() => setProgress((current) => { const next = { ...current }; delete next[`${currentUser?.id || 'guest'}:${item.id}`]; return next; })} aria-label="Retirer de la reprise"><X size={20} /></button>
             </div>;
           })}</div>
         </section>}
-        <ContentRail title="SORTIES DU JOUR" icon={<CalendarDays size={20} />} anime={featuredPool} openAnime={openAnime} /><ContentRail title="DERNIERS ÉPISODES AJOUTÉS" icon={<Layers3 size={20} />} anime={[...featuredPool].reverse()} openAnime={openAnime} compact />
+        <ContentRail title="SORTIES DU JOUR" icon={<CalendarDays size={20} />} anime={anime.filter((item) => isToday(item, today))} openAnime={openAnime} emptyMessage="Aucune sortie aujourd’hui." /><ContentRail title="DERNIERS ÉPISODES AJOUTÉS" icon={<Layers3 size={20} />} anime={[...anime].filter((item) => item.seasons?.some((season) => season.versions?.some((version) => allEpisodes(version).length))).sort((a, b) => Number(b.lastEpisodeAt || b.updatedAt || 0) - Number(a.lastEpisodeAt || a.updatedAt || 0)).slice(0, 12)} openAnime={openAnime} compact emptyMessage="Aucun épisode récent." />
       </>}
     </div>
   );
 }
 
-function ContentRail({ title, icon, anime, openAnime, compact = false }) {
-  return <section className="content-section"><div className="section-heading"><h2>{icon}{title}</h2><div className="section-arrows"><button aria-label="Précédent"><ArrowLeft size={18} /></button><button aria-label="Suivant"><ArrowRight size={18} /></button></div></div><div className={`anime-rail ${compact ? 'compact' : ''}`}>{anime.map((item, index) => <AnimeCard key={item.id} item={item} index={index} openAnime={openAnime} compact={compact} />)}</div></section>;
+function ContentRail({ title, icon, anime, openAnime, compact = false, emptyMessage }) {
+  return <section className="content-section"><div className="section-heading"><h2>{icon}{title}</h2><div className="section-arrows"><button aria-label="Précédent"><ArrowLeft size={18} /></button><button aria-label="Suivant"><ArrowRight size={18} /></button></div></div>{anime.length ? <div className={`anime-rail ${compact ? 'compact' : ''}`}>{anime.map((item, index) => <AnimeCard key={item.id} item={item} index={index} openAnime={openAnime} compact={compact} />)}</div> : <div className="rail-empty">{emptyMessage}</div>}</section>;
 }
 
 function AnimeCard({ item, index, openAnime, compact }) {
-  return <button className={`anime-card ${compact ? 'card-compact' : ''}`} onClick={() => openAnime(item)}><div className="card-image" style={{ backgroundImage: `url(${item.poster})` }}><span className="card-type">{item.isStudio ? 'Studio' : 'Animé'}</span><span className="card-flag">{index % 3 === 0 ? 'FR' : 'JP'}</span><span className="card-overlay"><Play size={21} fill="currentColor" /></span></div><div className="card-body"><h3>{item.name}</h3><div className="card-meta"><span><Clock3 size={13} /> Publication</span><span><Tv size={13} /> {item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div></div></button>;
+  const badge = versionBadge(item);
+  return <button className={`anime-card ${compact ? 'card-compact' : ''}`} onClick={() => openAnime(item)}><div className="card-image" style={{ backgroundImage: `url(${item.poster})` }}><span className="card-type">{item.isStudio ? 'Studio' : 'Anime'}</span><span className="card-flag"><span>{badge.flag}</span><b>{badge.label}</b></span><span className="card-overlay"><Play size={21} fill="currentColor" /></span></div><div className="card-body"><h3>{item.name}</h3><div className="card-meta"><span><Clock3 size={13} /> Publication</span><span><Tv size={13} /> {item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div></div></button>;
 }
 
 function Catalog({ anime, openAnime }) {
@@ -384,7 +405,7 @@ function Planning({ anime, openAnime }) {
 function Detail({ item, openWatch, go, stats, currentUser, toggleLike }) {
   const itemStats = stats[item.id] || {};
   const liked = (itemStats.likedBy || []).includes(currentUser?.id || 'guest');
-  return <div className="page detail-page"><div className="breadcrumbs"><button onClick={() => go('home')}><HomeIcon size={14} /> Accueil</button><ChevronRight size={14} /><button onClick={() => go('catalog')}>Catalogue</button><ChevronRight size={14} /><span>{item.name}</span></div><section className="detail-hero" style={{ backgroundImage: `url(${item.backdrop || item.poster})` }}><div className="detail-shade" /><div className="detail-poster" style={{ backgroundImage: `url(${item.poster})` }} /><div className="detail-copy"><span className="status-pill"><span className="live-dot" /> ANIME</span><h1>{item.name}</h1><div className="tag-row">{(item.genres || []).map((genre) => <span key={genre}>{genre}</span>)}</div>{item.isStudio && <p>{item.description}</p>}<div className="detail-data">{item.isStudio && <span><strong>Studio</strong>{item.studio}</span>}<span><strong>Vues</strong>{itemStats.views || 0}</span><span><strong>J'aime</strong>{itemStats.likes || 0}</span><span><strong>Saisons</strong>{item.seasons.length}</span></div><div className="detail-actions">{item.seasons[0] && <button className="primary-button" onClick={() => openWatch(item, item.seasons[0], item.seasons[0].versions[0])}><Play size={15} fill="currentColor" /> COMMENCER</button>}<button className={`icon-button ${liked ? 'is-favorite' : ''}`} onClick={() => toggleLike(item)} aria-label="J'aime"><Heart size={18} fill={liked ? 'currentColor' : 'none'} /><span className="like-count">{itemStats.likes || 0}</span></button></div></div></section><section className="seasons-section"><div className="section-heading"><h2><Layers3 size={20} /> SAISONS ET VERSIONS</h2><span className="muted">{item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div><div className="season-list">{item.seasons.map((season) => <div className="season-panel" key={season.id}><div className="season-title"><span>{season.name}</span><span className="episode-total">{Math.max(...season.versions.map((version) => allEpisodes(version).length), 0)} épisodes</span></div><div className="version-row">{season.versions.map((version) => <button key={version.name} className="version-button" onClick={() => openWatch(item, season, version)}><Play size={13} fill="currentColor" /> {version.name}<ChevronRight size={14} /></button>)}</div></div>)}</div></section></div>;
+  return <div className="page detail-page"><div className="breadcrumbs"><button onClick={() => go('home')}><HomeIcon size={14} /> Accueil</button><ChevronRight size={14} /><button onClick={() => go('catalog')}>Catalogue</button><ChevronRight size={14} /><span>{item.name}</span></div><section className="detail-hero" style={{ backgroundImage: `url(${item.backdrop || item.poster})` }}><div className="detail-shade" /><div className="detail-poster" style={{ backgroundImage: `url(${item.poster})` }} /><div className="detail-copy"><span className="status-pill">ANIME</span><h1>{item.name}</h1><div className="tag-row">{(item.genres || []).map((genre) => <span key={genre}>{genre}</span>)}</div>{item.isStudio && <p>{item.description}</p>}<div className="detail-data">{item.isStudio && <span><strong>Studio</strong>{item.studio}</span>}<span><strong>Vues</strong>{itemStats.views || 0}</span><span><strong>J'aime</strong>{itemStats.likes || 0}</span><span><strong>Saisons</strong>{item.seasons.length}</span></div><div className="detail-actions">{item.seasons[0] && <button className="primary-button" onClick={() => openWatch(item, item.seasons[0], item.seasons[0].versions[0])}><Play size={15} fill="currentColor" /> COMMENCER</button>}<button className={`icon-button ${liked ? 'is-favorite' : ''}`} onClick={() => toggleLike(item)} aria-label="J'aime"><Heart size={18} fill={liked ? 'currentColor' : 'none'} /><span className="like-count">{itemStats.likes || 0}</span></button></div></div></section><section className="seasons-section"><div className="section-heading"><h2><Layers3 size={20} /> SAISONS ET VERSIONS</h2><span className="muted">{item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div><div className="season-list">{item.seasons.map((season) => <div className="season-panel" key={season.id}><div className="season-title"><span>{season.name}</span><span className="episode-total">{Math.max(...season.versions.map((version) => allEpisodes(version).length), 0)} épisodes</span></div><div className="version-row">{season.versions.map((version) => <button key={version.name} className="version-button" onClick={() => openWatch(item, season, version)}><Play size={13} fill="currentColor" /> {version.name}<ChevronRight size={14} /></button>)}</div></div>)}</div></section></div>;
 }
 
 function Watch({ item, season, version, readerIndex, setReaderIndex, episodeIndex, setEpisodeIndex, onProgress, go }) {

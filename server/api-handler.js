@@ -36,7 +36,25 @@ function upsertAnime(anime, item) {
   const existingIndex = anime.findIndex((candidate) => candidate.id === item.id || (key && sourceKey(candidate.sourceUrl) === key));
   if (existingIndex < 0) return [item, ...anime];
   const next = [...anime];
-  next[existingIndex] = { ...next[existingIndex], ...item, id: next[existingIndex].id };
+  const existing = next[existingIndex];
+  const episodeSignature = (value) => JSON.stringify((value.seasons || []).map((season) => ({
+    id: season.id,
+    versions: (season.versions || []).map((version) => ({
+      name: version.name,
+      episodes: (version.readers || []).flatMap((reader) => reader.episodes || [])
+    }))
+  })));
+  const episodesChanged = episodeSignature(existing) !== episodeSignature(item);
+  const updatedAt = episodesChanged
+    ? (item.updatedAt || Date.now())
+    : (existing.updatedAt || item.updatedAt || Date.now());
+  next[existingIndex] = {
+    ...existing,
+    ...item,
+    id: existing.id,
+    updatedAt,
+    lastEpisodeAt: episodesChanged ? updatedAt : (existing.lastEpisodeAt || updatedAt)
+  };
   return next;
 }
 
