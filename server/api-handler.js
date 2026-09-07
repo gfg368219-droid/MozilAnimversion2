@@ -5,8 +5,13 @@ import { readState, storageDescription, updateState } from './catalog-store.js';
 import { guardApiRequest } from './request-guard.js';
 
 const MAX_ATTEMPTS = 5;
-const WORKER_BATCH_SIZE = process.env.VERCEL ? 1 : 2;
+const WORKER_BATCH_SIZE = Math.max(
+  1,
+  Number(process.env.IMPORT_WORKER_CONCURRENCY || (process.env.VERCEL ? 48 : 96))
+);
+const WORKER_INTERVAL_MS = Math.max(1_000, Number(process.env.IMPORT_WORKER_INTERVAL_MS || 1_000));
 let workerStarted = false;
+let workerRunning = false;
 
 const sendJson = (response, status, payload) => {
   response.statusCode = status;
@@ -127,97 +132,109 @@ async function initializeJob(jobId) {
   return (await readState()).jobs.find((entry) => entry.id === jobId);
 }
 
-async function processOneEntry(jobId, entryId) {
-  await updateState((current) => ({
-    ...current,
-    jobs: current.jobs.map((job) => job.id !== jobId || job.status === 'cancelled' ? job : {
-      ...job,
-      status: 'running',
-      entries: job.entries.map((entry) => entry.id === entryId ? {
-        ...entry,
-        status: 'running',
-        attempts: (entry.attempts || 0) + 1,
-        startedAt: Date.now()
-      } : entry),
-      updatedAt: Date.now()
-    })
-  }));
-  const state = await readState();
-  const job = state.jobs.find((entry) => entry.id === jobId);
-  const entry = job?.entries.find((item) => item.id === entryId);
-  if (!job || !entry || job.status === 'cancelled') return;
+async function processEntry(entry) {
   try {
     const imported = await importAnime(entry.title, entry.url);
-    await updateState((current) => {
-      const savedJob = current.jobs.find((candidate) => candidate.id === jobId);
-      if (!savedJob || savedJob.status === 'cancelled') return current;
-      return {
-        ...current,
-        anime: upsertAnime(current.anime, {
-          ...imported,
-          ...(job.kind === 'planning' && (entry.date || entry.day !== undefined) ? {
-            schedule: entry.date ? { date: entry.date, time: entry.time || '18:00', day: entry.day, seasonId: imported.seasons.at(-1)?.id } : { day: entry.day, time: entry.time || '18:00', seasonId: imported.seasons.at(-1)?.id }
-          } : {})
-        }),
-        jobs: current.jobs.map((savedJob) => savedJob.id !== jobId ? savedJob : {
-        ...savedJob,
-        entries: savedJob.entries.map((savedEntry) => savedEntry.id === entryId ? {
-          ...savedEntry,
-          status: 'imported',
-          error: '',
-          itemId: imported.id,
-          finishedAt: Date.now()
-        } : savedEntry),
-        updatedAt: Date.now()
-        })
-      };
-    });
+    return { entryId: entry.id, imported };
   } catch (error) {
-    await updateState((current) => ({
-      ...current,
-      jobs: current.jobs.map((savedJob) => savedJob.id !== jobId ? savedJob : {
-        ...savedJob,
-        entries: savedJob.entries.map((savedEntry) => {
-          if (savedEntry.id !== entryId) return savedEntry;
-          const attempts = savedEntry.attempts || 0;
-          return {
-            ...savedEntry,
-            status: attempts >= MAX_ATTEMPTS ? 'failed' : 'retrying',
-            error: error.message || 'Erreur inconnue',
-            nextAttemptAt: Date.now() + Math.min(60_000, 2_000 * (2 ** Math.max(0, attempts - 1)))
-          };
-        }),
-        updatedAt: Date.now()
-      })
-    }));
+    return { entryId: entry.id, error: error.message || 'Erreur inconnue' };
   }
 }
 
 export async function runImportWorker() {
-  const initial = await readState();
-  const now = Date.now();
-  const activeJobs = initial.jobs.filter((job) => ['queued', 'retrying', 'running'].includes(job.status));
-  for (const job of activeJobs) {
-    let currentJob = await initializeJob(job.id);
-    if (!currentJob || currentJob.status === 'failed' || currentJob.status === 'completed') continue;
-    const staleRunning = (entry) => entry.status === 'running' && now - Number(entry.startedAt || 0) > 120_000;
-    const candidates = (currentJob.entries || [])
-      .filter((entry) => entry.status === 'pending' || entry.status === 'retrying' || staleRunning(entry))
-      .filter((entry) => !entry.nextAttemptAt || entry.nextAttemptAt <= now)
-      .slice(0, WORKER_BATCH_SIZE);
-    for (const entry of candidates) await processOneEntry(job.id, entry.id);
-    const after = await readState();
-    const saved = after.jobs.find((entry) => entry.id === job.id);
-    if (saved?.entries?.length && saved.entries.every((entry) => ['imported', 'skipped', 'failed'].includes(entry.status))) {
+  if (workerRunning) return;
+  workerRunning = true;
+  try {
+    const initial = await readState();
+    const now = Date.now();
+    const activeJobs = initial.jobs.filter((job) => ['queued', 'retrying', 'running'].includes(job.status));
+    for (const job of activeJobs) {
+      const currentJob = await initializeJob(job.id);
+      if (!currentJob || currentJob.status === 'failed' || currentJob.status === 'completed') continue;
+      const staleRunning = (entry) => entry.status === 'running' && now - Number(entry.startedAt || 0) > 120_000;
+      const candidates = (currentJob.entries || [])
+        .filter((entry) => entry.status === 'pending' || entry.status === 'retrying' || staleRunning(entry))
+        .filter((entry) => !entry.nextAttemptAt || entry.nextAttemptAt <= now)
+        .slice(0, WORKER_BATCH_SIZE);
+      if (!candidates.length) continue;
+
+      const candidateIds = new Set(candidates.map((entry) => entry.id));
+      const startedAt = Date.now();
       await updateState((current) => ({
         ...current,
-        jobs: current.jobs.map((entry) => entry.id !== job.id ? entry : {
-          ...entry,
-          status: entry.entries.some((item) => item.status === 'failed') ? 'completed_with_errors' : 'completed',
-          updatedAt: Date.now()
+        jobs: current.jobs.map((savedJob) => savedJob.id !== job.id || savedJob.status === 'cancelled' ? savedJob : {
+          ...savedJob,
+          status: 'running',
+          entries: savedJob.entries.map((entry) => candidateIds.has(entry.id) ? {
+            ...entry,
+            status: 'running',
+            attempts: (entry.attempts || 0) + 1,
+            startedAt
+          } : entry),
+          updatedAt: startedAt
         })
       }));
+
+      const results = await Promise.all(candidates.map((entry) => processEntry(entry)));
+      await updateState((current) => {
+        const savedJob = current.jobs.find((candidate) => candidate.id === job.id);
+        if (!savedJob || savedJob.status === 'cancelled') return current;
+        const resultById = new Map(results.map((result) => [result.entryId, result]));
+        const nextAnime = [...current.anime];
+        const nextEntries = savedJob.entries.map((savedEntry) => {
+          const result = resultById.get(savedEntry.id);
+          if (!result) return savedEntry;
+          if (result.imported) {
+            nextAnime.splice(0, nextAnime.length, ...upsertAnime(nextAnime, {
+              ...result.imported,
+              ...(job.kind === 'planning' && (savedEntry.date || savedEntry.day !== undefined) ? {
+                schedule: savedEntry.date
+                  ? { date: savedEntry.date, time: savedEntry.time || '18:00', day: savedEntry.day, seasonId: result.imported.seasons.at(-1)?.id }
+                  : { day: savedEntry.day, time: savedEntry.time || '18:00', seasonId: result.imported.seasons.at(-1)?.id }
+              } : {})
+            }));
+            return {
+              ...savedEntry,
+              status: 'imported',
+              error: '',
+              itemId: result.imported.id,
+              finishedAt: Date.now()
+            };
+          }
+          const attempts = savedEntry.attempts || 1;
+          return {
+            ...savedEntry,
+            status: attempts >= MAX_ATTEMPTS ? 'failed' : 'retrying',
+            error: result.error,
+            nextAttemptAt: Date.now() + Math.min(60_000, 2_000 * (2 ** Math.max(0, attempts - 1)))
+          };
+        });
+        return {
+          ...current,
+          anime: nextAnime,
+          jobs: current.jobs.map((savedJob) => savedJob.id !== job.id ? savedJob : {
+            ...savedJob,
+            entries: nextEntries,
+            updatedAt: Date.now()
+          })
+        };
+      });
+
+      const after = await readState();
+      const saved = after.jobs.find((entry) => entry.id === job.id);
+      if (saved?.entries?.length && saved.entries.every((entry) => ['imported', 'skipped', 'failed'].includes(entry.status))) {
+        await updateState((current) => ({
+          ...current,
+          jobs: current.jobs.map((entry) => entry.id !== job.id ? entry : {
+            ...entry,
+            status: entry.entries.some((item) => item.status === 'failed') ? 'completed_with_errors' : 'completed',
+            updatedAt: Date.now()
+          })
+        }));
+      }
     }
+  } finally {
+    workerRunning = false;
   }
 }
 
@@ -226,7 +243,7 @@ export function startImportWorker() {
   workerStarted = true;
   const tick = () => runImportWorker().catch((error) => console.error('[import-worker]', error));
   tick();
-  setInterval(tick, 5_000);
+  setInterval(tick, WORKER_INTERVAL_MS);
 }
 
 async function handleCatalog(request, response) {

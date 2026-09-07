@@ -7,6 +7,7 @@ const SOURCE_HOSTS = new Set(['anime-sama.to', 'anime-sama.org', 'anime-sama.tv'
 const REQUEST_TIMEOUT_MS = 25_000;
 const FETCH_ATTEMPTS = 3;
 const VERSION_PATHS = ['vostfr', 'vf', 'vo', 'vkr', 'va'];
+const VERSION_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_VERSION_CONCURRENCY || 8));
 
 const sendJson = (response, status, payload) => {
   response.statusCode = status;
@@ -35,6 +36,20 @@ function validSourceUrl(value) {
 }
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
 
 async function fetchText(url) {
   let lastError;
@@ -289,19 +304,16 @@ export async function importAnime(query, directUrl) {
   const baseHtml = await fetchText(animeUrl);
   const metadata = parseAnimePage(baseHtml, animeUrl);
   const parsedLinks = expandVersionLinks(metadata.links);
-  const versions = [];
-  for (let index = 0; index < parsedLinks.length; index += 2) {
-    const batch = parsedLinks.slice(index, index + 2);
-    const results = await Promise.all(batch.map(async (link) => {
-      try {
-        return await parseVersion(source, animeUrl.pathname, link.label, link.path);
-      } catch (error) {
+  const versions = await mapWithConcurrency(parsedLinks, VERSION_CONCURRENCY, async (link) => {
+    try {
+      return await parseVersion(source, animeUrl.pathname, link.label, link.path);
+    } catch (error) {
+      if (!/HTTP 404\b/.test(error.message || '')) {
         console.warn(`[anime-sama-api] Version ignorée (${link.path}): ${error.message}`);
-        return null;
       }
-    }));
-    versions.push(...results);
-  }
+      return null;
+    }
+  });
   const seasons = new Map();
   for (const entry of versions.filter(Boolean)) {
     const seasonId = `saison-${entry.seasonNumber}`;
