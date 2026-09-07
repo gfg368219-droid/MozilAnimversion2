@@ -1,5 +1,9 @@
 {
   "installCommand": "npm ci --registry=https://registry.npmjs.org",
+  "rewrites": [
+    { "source": "/login", "destination": "/" },
+    { "source": "/register", "destination": "/" }
+  ],
   "functions": {
     "api/[[...path]].js": {
       "maxDuration": 60

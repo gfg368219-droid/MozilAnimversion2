@@ -27,12 +27,37 @@ const POSTER_POOL = [
 const SEEDED_ANIME_IDS = new Set(['aishiteru-game', 'solo-leveling', 'one-piece', 'demon-slayer', 'blue-lock', 'jujutsu-kaisen']);
 const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 
+const MAX_LOCAL_CACHE_BYTES = 750_000;
+
 const readJson = (key, fallback) => {
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    const raw = localStorage.getItem(key);
+    if (raw && raw.length > MAX_LOCAL_CACHE_BYTES) {
+      localStorage.removeItem(key);
+      return fallback;
+    }
+    const parsed = JSON.parse(raw || 'null');
     return parsed ?? fallback;
   } catch {
     return fallback;
+  }
+};
+
+const writeJson = (key, value, maxBytes = MAX_LOCAL_CACHE_BYTES) => {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized.length > maxBytes) {
+      if (key === 'mozilanim-anime') localStorage.removeItem(key);
+      return false;
+    }
+    localStorage.setItem(key, serialized);
+    return true;
+  } catch (error) {
+    if (error?.name === 'QuotaExceededError' || error?.code === 22) {
+      try { localStorage.removeItem(key); } catch {}
+      return false;
+    }
+    return false;
   }
 };
 
@@ -78,6 +103,12 @@ const isToday = (item, date = new Date()) => {
   return schedule.day !== undefined && Number(schedule.day) === date.getDay();
 };
 const viewFromHash = (hash) => hash.replace(/^#\/?/, '') || 'home';
+const viewFromLocation = () => {
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (pathname === '/login') return 'login';
+  if (pathname === '/register') return 'register';
+  return viewFromHash(window.location.hash);
+};
 const dayFromDate = (date) => {
   if (!date) return null;
   const parsed = new Date(`${date}T12:00:00`);
@@ -150,7 +181,7 @@ function App() {
   const [applications, setApplications] = useState(() => readJson('mozilanim-studio-applications', []));
   const [progress, setProgress] = useState(() => readJson('mozilanim-progress', {}));
   const [stats, setStats] = useState(() => readJson('mozilanim-stats', {}));
-  const [view, setView] = useState(() => viewFromHash(window.location.hash));
+  const [view, setView] = useState(viewFromLocation);
   const [selectedAnime, setSelectedAnime] = useState(null);
   const [selectedSeason, setSelectedSeason] = useState(null);
   const [selectedVersion, setSelectedVersion] = useState(null);
@@ -176,11 +207,17 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => localStorage.setItem('mozilanim-anime', JSON.stringify(anime)), [anime]);
-  useEffect(() => localStorage.setItem('mozilanim-users', JSON.stringify(users)), [users]);
-  useEffect(() => localStorage.setItem('mozilanim-studio-applications', JSON.stringify(applications)), [applications]);
-  useEffect(() => localStorage.setItem('mozilanim-progress', JSON.stringify(progress)), [progress]);
-  useEffect(() => localStorage.setItem('mozilanim-stats', JSON.stringify(stats)), [stats]);
+  useEffect(() => {
+    if (catalogLoaded) {
+      try { localStorage.removeItem('mozilanim-anime'); } catch {}
+      return;
+    }
+    writeJson('mozilanim-anime', anime, 300_000);
+  }, [anime, catalogLoaded]);
+  useEffect(() => { writeJson('mozilanim-users', users, 200_000); }, [users]);
+  useEffect(() => { writeJson('mozilanim-studio-applications', applications, 300_000); }, [applications]);
+  useEffect(() => { writeJson('mozilanim-progress', progress, 300_000); }, [progress]);
+  useEffect(() => { writeJson('mozilanim-stats', stats, 300_000); }, [stats]);
 
   const refreshCatalog = async () => {
     try {
@@ -210,13 +247,25 @@ function App() {
   }, [anime, catalogLoaded, adminToken]);
 
   useEffect(() => {
-    const onHash = () => setView(viewFromHash(window.location.hash));
+    const onLocationChange = () => setView(viewFromLocation());
+    const onHash = onLocationChange;
     window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    window.addEventListener('popstate', onLocationChange);
+    return () => {
+      window.removeEventListener('hashchange', onHash);
+      window.removeEventListener('popstate', onLocationChange);
+    };
   }, []);
 
   const go = (nextView) => {
-    window.location.hash = nextView;
+    if (nextView === 'login' || nextView === 'register') {
+      window.history.pushState({}, '', `/${nextView}`);
+    } else if (window.location.pathname === '/login' || window.location.pathname === '/register') {
+      window.history.pushState({}, '', `/#${nextView}`);
+    } else {
+      window.location.hash = nextView;
+    }
+    setView(nextView);
     setMobileMenu(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -281,6 +330,8 @@ function App() {
       <Header view={view} go={go} isAdmin={isAdmin} currentUser={currentUser} onLogin={() => { setLoginMode('login'); setLoginOpen(true); }} logout={logout} mobileMenu={mobileMenu} setMobileMenu={setMobileMenu} />
       <main>
         {view === 'home' && <Home anime={anime} progress={progress} currentUser={currentUser} openAnime={openAnime} openWatch={openWatch} resumeAnime={resumeAnime} setProgress={setProgress} go={go} />}
+        {view === 'login' && <AccountPage mode="login" users={users} onUserSuccess={onLogin} onAdminSuccess={(token) => { setAdminToken(token); setIsAdmin(true); sessionStorage.setItem('mozilanim-admin', 'true'); sessionStorage.setItem('mozilanim-admin-token', token); go('admin'); }} onRegister={() => go('register')} onBack={() => go('home')} />}
+        {view === 'register' && <AccountPage mode="register" users={users} setUsers={setUsers} onUserSuccess={onLogin} onLogin={() => go('login')} onBack={() => go('home')} />}
         {view === 'catalog' && <Catalog anime={anime} openAnime={openAnime} />}
         {view === 'detail' && selectedAnime && <Detail item={selectedAnime} openWatch={openWatch} go={go} stats={stats} currentUser={currentUser} toggleLike={toggleLike} />}
         {view === 'watch' && selectedAnime && selectedSeason && selectedVersion && <Watch item={selectedAnime} season={selectedSeason} version={selectedVersion} readerIndex={selectedReader} setReaderIndex={setSelectedReader} episodeIndex={episodeIndex} setEpisodeIndex={setEpisodeIndex} onProgress={saveProgress} currentUser={currentUser} go={go} />}
@@ -290,7 +341,7 @@ function App() {
         {view === 'admin' && !isAdmin && <AccessDenied onLogin={() => { setLoginMode('login'); setLoginOpen(true); }} />}
       </main>
       <Footer go={go} />
-      <LoginModal open={loginOpen} mode={loginMode} setMode={setLoginMode} onClose={() => setLoginOpen(false)} onUserSuccess={onLogin} onAdminSuccess={(token) => { setAdminToken(token); setIsAdmin(true); sessionStorage.setItem('mozilanim-admin', 'true'); sessionStorage.setItem('mozilanim-admin-token', token); setLoginOpen(false); go('admin'); }} users={users} setUsers={setUsers} />
+      {view !== 'login' && view !== 'register' && <LoginModal open={loginOpen} mode={loginMode} setMode={setLoginMode} onRegisterPage={() => { setLoginOpen(false); go('register'); }} onClose={() => setLoginOpen(false)} onUserSuccess={onLogin} onAdminSuccess={(token) => { setAdminToken(token); setIsAdmin(true); sessionStorage.setItem('mozilanim-admin', 'true'); sessionStorage.setItem('mozilanim-admin-token', token); setLoginOpen(false); go('admin'); }} users={users} setUsers={setUsers} />}
     </div>
   );
 }
@@ -738,7 +789,7 @@ function SeasonForm({ item, existingSeason, onClose, onSave }) {
   return <div className="modal-backdrop"><form className="modal season-modal" onSubmit={save}><div className="modal-heading"><div><span className="eyebrow">{existingSeason ? 'MODIFIER LE CONTENU' : 'AJOUTER DU CONTENU'}</span><h2>{item.name}</h2></div><button type="button" className="close-button" onClick={onClose}><X size={18} /></button></div><Field label="Nom de la saison"><input required value={name} onChange={(event) => setName(event.target.value)} /></Field><div className="version-heading"><span>VERSIONS ET LECTEURS</span><button type="button" className="text-button" onClick={addVersion}><Plus size={14} /> AJOUTER UNE VERSION</button></div>{versions.map((version, index) => <div className="version-form" key={index}><div className="version-line"><Field label={`Nom de la version ${index + 1}`}><input value={version.name} onChange={(event) => setVersions(versions.map((v, i) => i === index ? { ...v, name: event.target.value } : v))} placeholder="VOSTFR, VF, VKR..." /></Field><span className="reader-hint">{parsePlayers(version.script).length ? parsePlayers(version.script).reduce((sum, reader) => sum + reader.episodes.length, 0) : allEpisodes({ readers: version.existingReaders || [] }).length} épisode(s) détecté(s)</span></div><Field label="Script des épisodes" hint={existingSeason && version.existingReaders?.length ? 'Laissez vide pour conserver les épisodes actuels' : 'Collez vos tableaux var eps1 = [ ... ]'}><textarea rows="7" value={version.script} onChange={(event) => setVersions(versions.map((v, i) => i === index ? { ...v, script: event.target.value } : v))} placeholder="var eps1 = [ 'https://...' ];" /></Field></div>)}<div className="modal-actions"><button type="button" className="ghost-button" onClick={onClose}>ANNULER</button><button className="primary-button" type="submit"><Check size={16} /> {existingSeason ? 'ENREGISTRER LES MODIFICATIONS' : 'ENREGISTRER LA SAISON'}</button></div></form></div>;
 }
 
-function LoginModal({ open, mode, setMode, onClose, onUserSuccess, onAdminSuccess, users, setUsers }) {
+function LoginModal({ open, mode, setMode, onRegisterPage, onClose, onUserSuccess, onAdminSuccess, users, setUsers }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -779,7 +830,71 @@ function LoginModal({ open, mode, setMode, onClose, onUserSuccess, onAdminSucces
     if (!account) return setError('Email ou mot de passe incorrect.');
     onUserSuccess(account);
   };
-  return <div className="modal-backdrop"><form className="modal login-modal" onSubmit={submit}><button type="button" className="close-button" onClick={onClose}><X size={18} /></button><div className="login-mark"><UserCircle size={25} /></div><span className="eyebrow">COMPTE MOZILANIM</span><h2>{mode === 'register' ? 'Créer un compte' : 'Se connecter'}</h2>{mode === 'register' && <Field label="Votre nom"><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Votre nom" /></Field>}<Field label="Adresse email"><input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="votre@email.com" /></Field><Field label="Mot de passe"><input type="password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /></Field>{error && <div className="form-error">{error}</div>}<button className="primary-button login-button" type="submit">{mode === 'register' ? 'CRÉER MON COMPTE' : 'SE CONNECTER'} <ArrowRight size={16} /></button><button className="switch-login" type="button" onClick={() => setMode(mode === 'register' ? 'login' : 'register')}>{mode === 'register' ? 'J’ai déjà un compte' : 'Créer un compte'}</button></form></div>;
+  return <div className="modal-backdrop"><form className="modal login-modal" onSubmit={submit}><button type="button" className="close-button" onClick={onClose}><X size={18} /></button><div className="login-mark"><UserCircle size={25} /></div><span className="eyebrow">COMPTE MOZILANIM</span><h2>{mode === 'register' ? 'Créer un compte' : 'Se connecter'}</h2>{mode === 'register' && <Field label="Votre nom"><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Votre nom" /></Field>}<Field label="Adresse email"><input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="votre@email.com" /></Field><Field label="Mot de passe"><input type="password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /></Field>{error && <div className="form-error">{error}</div>}<button className="primary-button login-button" type="submit">{mode === 'register' ? 'CRÉER MON COMPTE' : 'SE CONNECTER'} <ArrowRight size={16} /></button><button className="switch-login" type="button" onClick={() => mode === 'login' && onRegisterPage ? onRegisterPage() : setMode('login')}>{mode === 'register' ? 'J’ai déjà un compte' : 'Créer un compte'}</button></form></div>;
+}
+
+function AccountPage({ mode, users, setUsers, onUserSuccess, onAdminSuccess, onRegister, onLogin, onBack }) {
+  const isRegister = mode === 'register';
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = async (event) => {
+    event.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (isRegister) {
+      if (password.length < 6) return setError('Le mot de passe doit contenir au moins 6 caractères.');
+      if (!name.trim()) return setError('Indiquez votre nom.');
+      if (users.some((user) => user.email === normalizedEmail)) return setError('Un compte existe déjà avec cet email.');
+      const account = { id: `user-${Date.now()}`, name: name.trim(), email: normalizedEmail, password, role: 'user', createdAt: Date.now() };
+      setUsers((current) => [...current, account]);
+      onUserSuccess(account);
+      return;
+    }
+    try {
+      const response = await fetch('/api/admin/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, password })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        onAdminSuccess(payload.token);
+        return;
+      }
+      if (response.status >= 500) {
+        setError('Connexion administrateur indisponible. Vérifiez la configuration serveur.');
+        return;
+      }
+      if (response.status === 403) {
+        setError(payload.error || 'Connexion bloquée temporairement. Réessayez plus tard.');
+        return;
+      }
+    } catch {
+      setError('API administrateur inaccessible. Réessayez dans un instant.');
+      return;
+    }
+    const account = users.find((user) => user.email === normalizedEmail && user.password === password);
+    if (!account) setError('Email ou mot de passe incorrect.');
+    else onUserSuccess(account);
+  };
+
+  return <div className="page account-page">
+    <form className="account-card" onSubmit={submit}>
+      <button type="button" className="account-back" onClick={onBack}><ArrowLeft size={16} /> Retour au catalogue</button>
+      <div className="login-mark"><UserCircle size={25} /></div>
+      <span className="eyebrow">COMPTE MOZILANIM</span>
+      <h1>{isRegister ? 'Créer un compte' : 'Se connecter'}</h1>
+      <p>{isRegister ? 'Créez votre compte pour suivre vos animés et rejoindre Mozilanim studio.' : 'Retrouvez vos favoris et accédez à votre espace Mozilanim.'}</p>
+      {isRegister && <Field label="Votre nom"><input required autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Votre nom" /></Field>}
+      <Field label="Adresse email"><input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="votre@email.com" /></Field>
+      <Field label="Mot de passe"><input required type="password" autoComplete={isRegister ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /></Field>
+      {error && <div className="form-error">{error}</div>}
+      <button className="primary-button login-button" type="submit">{isRegister ? 'CRÉER MON COMPTE' : 'SE CONNECTER'} <ArrowRight size={16} /></button>
+      {isRegister ? <button className="switch-login" type="button" onClick={onLogin}>J’ai déjà un compte</button> : <button className="switch-login" type="button" onClick={onRegister}>Créer un compte</button>}
+    </form>
+  </div>;
 }
 
 function AccessDenied({ onLogin, studio = false }) {
