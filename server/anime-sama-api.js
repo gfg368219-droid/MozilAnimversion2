@@ -1,9 +1,11 @@
 import { URL } from 'node:url';
 import { isAdminRequest } from './admin-auth.js';
+import { guardApiRequest } from './request-guard.js';
 
 const DEFAULT_SOURCE = 'https://anime-sama.to';
 const SOURCE_HOSTS = new Set(['anime-sama.to', 'anime-sama.org', 'anime-sama.tv', 'anime-sama.fr']);
 const REQUEST_TIMEOUT_MS = 25_000;
+const FETCH_ATTEMPTS = 3;
 const VERSION_PATHS = ['vostfr', 'vf', 'vo', 'vkr', 'va'];
 
 const sendJson = (response, status, payload) => {
@@ -32,22 +34,33 @@ function validSourceUrl(value) {
   return url;
 }
 
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 async function fetchText(url) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'text/html,application/javascript,text/javascript,*/*;q=0.8',
-        'User-Agent': 'Mozilla/5.0 (compatible; MozilanimImporter/1.0)'
-      },
-      signal: controller.signal
-    });
-    if (!response.ok) throw new Error(`Anime-Sama a répondu HTTP ${response.status} pour ${url}.`);
-    return await response.text();
-  } finally {
-    clearTimeout(timeout);
+  let lastError;
+  for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'text/html,application/javascript,text/javascript,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (compatible; MozilanimImporter/1.1)'
+        },
+        signal: controller.signal
+      });
+      if (response.ok) return await response.text();
+      lastError = new Error(`Anime-Sama a répondu HTTP ${response.status} pour ${url}.`);
+      if (![408, 425, 429, 500, 502, 503, 504].includes(response.status)) throw lastError;
+    } catch (error) {
+      lastError = error;
+      if (attempt === FETCH_ATTEMPTS) throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (attempt < FETCH_ATTEMPTS) await wait(350 * (2 ** (attempt - 1)));
   }
+  throw lastError;
 }
 
 function parseSearchResults(html, query, source) {
@@ -243,7 +256,7 @@ function expandVersionLinks(links) {
 async function parseVersion(source, basePath, seasonLabel, versionPath) {
   const pageUrl = new URL(`${basePath.replace(/\/+$/, '')}/${versionPath.replace(/^\/+/, '')}/`, source);
   const html = await fetchText(pageUrl);
-  const scriptMatch = html.match(/<script[^>]+src=['"]([^'"]*episodes\.js[^'"]*)['"]/i);
+  const scriptMatch = html.match(/<script[^>]+src=['"]([^'"]*(?:episodes?|lecteurs?)[^'"]*\.js[^'"]*)['"]/i);
   if (!scriptMatch) return null;
   const scriptUrl = absoluteUrl(scriptMatch[1], pageUrl);
   const readers = parseEpisodes(await fetchText(scriptUrl));
@@ -276,14 +289,19 @@ export async function importAnime(query, directUrl) {
   const baseHtml = await fetchText(animeUrl);
   const metadata = parseAnimePage(baseHtml, animeUrl);
   const parsedLinks = expandVersionLinks(metadata.links);
-  const versions = await Promise.all(parsedLinks.map(async (link) => {
-    try {
-      return await parseVersion(source, animeUrl.pathname, link.label, link.path);
-    } catch (error) {
-      console.warn(`[anime-sama-api] Version ignorée (${link.path}): ${error.message}`);
-      return null;
-    }
-  }));
+  const versions = [];
+  for (let index = 0; index < parsedLinks.length; index += 2) {
+    const batch = parsedLinks.slice(index, index + 2);
+    const results = await Promise.all(batch.map(async (link) => {
+      try {
+        return await parseVersion(source, animeUrl.pathname, link.label, link.path);
+      } catch (error) {
+        console.warn(`[anime-sama-api] Version ignorée (${link.path}): ${error.message}`);
+        return null;
+      }
+    }));
+    versions.push(...results);
+  }
   const seasons = new Map();
   for (const entry of versions.filter(Boolean)) {
     const seasonId = `saison-${entry.seasonNumber}`;
@@ -315,6 +333,7 @@ export async function importAnime(query, directUrl) {
 
 export async function handleAnimeSamaRequest(request, response, requestUrl = new URL(request.url || '/', 'http://localhost')) {
   try {
+    if (guardApiRequest(request, response)) return;
     if (requestUrl.pathname === '/api/anime-sama/search') {
       const query = requestUrl.searchParams.get('q')?.trim();
       if (!query) return sendJson(response, 400, { error: 'Le titre est obligatoire.' });

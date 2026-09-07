@@ -2,6 +2,7 @@ import { URL } from 'node:url';
 import { fetchCatalogue, fetchPlanning, importAnime } from './anime-sama-api.js';
 import { checkAdminCredentials, createAdminToken, isAdminRequest } from './admin-auth.js';
 import { readState, storageDescription, updateState } from './catalog-store.js';
+import { guardApiRequest } from './request-guard.js';
 
 const MAX_ATTEMPTS = 5;
 const WORKER_BATCH_SIZE = process.env.VERCEL ? 1 : 2;
@@ -316,6 +317,7 @@ async function handleJobs(request, response, pathname) {
 
 export async function handleApiRequest(request, response, requestUrl = new URL(request.url || '/', 'http://localhost')) {
   try {
+    if (guardApiRequest(request, response)) return;
     if (requestUrl.pathname === '/api/admin/session' && request.method === 'POST') {
       const body = await readJson(request);
       if (!checkAdminCredentials(body.email, body.password)) return sendJson(response, 401, { error: 'Identifiants administrateur incorrects.' });

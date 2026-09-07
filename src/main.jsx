@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowLeft, ArrowRight, ArrowUp, CalendarDays, Check, ChevronLeft, ChevronRight,
-  CircleHelp, Clock3, Film, Heart, Home as HomeIcon, Info, ListFilter, LogOut,
+  Clock3, Film, Heart, Home as HomeIcon, Info, ListFilter, LogOut,
   Menu, MonitorPlay, Play, Plus, Search, Settings, ShieldCheck, Tv, UserCircle,
   X, Layers3, Trash2, Code2, Upload, Download, Users, Ban, Eye, BarChart3, TrendingUp
 } from 'lucide-react';
@@ -305,7 +305,6 @@ function Header({ view, go, isAdmin, currentUser, onLogin, logout, mobileMenu, s
           <button className={view === 'catalog' ? 'active' : ''} onClick={() => go('catalog')}><Film size={16} /> Catalogue</button>
           <button className={view === 'studio' ? 'active studio-nav-link' : 'studio-nav-link'} onClick={() => go('studio')}><Code2 size={16} /> Mozilanim studio</button>
           <button className={view === 'planning' ? 'active' : ''} onClick={() => go('planning')}><CalendarDays size={16} /> Planning</button>
-          <button onClick={() => document.getElementById('footer')?.scrollIntoView({ behavior: 'smooth' })}><CircleHelp size={16} /> Aide</button>
           {isAdmin && <button className={view === 'admin' ? 'active admin-link' : 'admin-link'} onClick={() => go('admin')}><ShieldCheck size={16} /> Administration</button>}
           <button onClick={currentUser || isAdmin ? logout : onLogin}><UserCircle size={17} /> {isAdmin ? 'Déconnexion' : currentUser ? currentUser.name : 'Connexion'}</button>
         </nav>
