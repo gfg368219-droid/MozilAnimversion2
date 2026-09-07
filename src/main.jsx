@@ -761,13 +761,19 @@ function LoginModal({ open, mode, setMode, onClose, onUserSuccess, onAdminSucces
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: normalizedEmail, password })
       });
+      const adminPayload = await adminResponse.json().catch(() => ({}));
       if (adminResponse.ok) {
-        const adminPayload = await adminResponse.json();
         onAdminSuccess(adminPayload.token);
         return;
       }
+      if (adminResponse.status >= 500) {
+        return setError('Connexion administrateur indisponible. Vérifiez SESSION_SECRET, ADMIN_EMAIL et ADMIN_PASSWORD dans Railway.');
+      }
+      if (adminResponse.status === 403) {
+        return setError(adminPayload.error || 'Connexion administrateur bloquée temporairement. Réessayez plus tard.');
+      }
     } catch {
-      // The local account fallback below still works if the admin API is unavailable.
+      return setError('API administrateur inaccessible. Vérifiez que Railway démarre bien la commande npm start.');
     }
     const account = users.find((user) => user.email === normalizedEmail && user.password === password);
     if (!account) return setError('Email ou mot de passe incorrect.');
