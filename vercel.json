@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm ci --registry=https://registry.npmjs.org",
   "functions": {
     "api/[[...path]].js": {
       "maxDuration": 60
