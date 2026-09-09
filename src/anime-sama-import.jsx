@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { CalendarDays, Check, Download, LoaderCircle, Search, X } from 'lucide-react';
 
 function ImportRow({ result, selected, onSelect }) {
@@ -43,6 +43,7 @@ export default function AnimeSamaImport({ onClose, onImport, onRefresh, adminTok
   const [status, setStatus] = useState('');
   const [progress, setProgress] = useState(null);
   const [jobId, setJobId] = useState('');
+  const automaticRetryDone = useRef(false);
 
   const search = async (event) => {
     event?.preventDefault();
@@ -113,6 +114,22 @@ export default function AnimeSamaImport({ onClose, onImport, onRefresh, adminTok
     });
     if (!['completed', 'completed_with_errors', 'failed'].includes(job.status)) {
       window.setTimeout(() => watchJob(id).catch((watchError) => setError(watchError.message)), 750);
+    } else if (job.status === 'completed_with_errors' && job.errors?.length && !automaticRetryDone.current) {
+      automaticRetryDone.current = true;
+      setStatus('Import terminé. Nouvelle tentative automatique des erreurs…');
+      setProgress((current) => current ? { ...current, running: true, message: 'Nouvelle tentative des erreurs…' } : current);
+      try {
+        const retryResponse = await fetch(`/api/import-jobs/${id}/retry-failed`, {
+          method: 'POST',
+          headers: { 'x-mozilanim-admin': adminToken }
+        });
+        const retryPayload = await retryResponse.json();
+        if (!retryResponse.ok) throw new Error(retryPayload.error || 'Impossible de relancer automatiquement les erreurs.');
+        window.setTimeout(() => watchJob(id).catch((watchError) => setError(watchError.message)), 250);
+      } catch (retryError) {
+        setError(retryError.message);
+        setBusy(false);
+      }
     } else {
       await onRefresh?.();
       setStatus(job.status === 'completed' ? 'Import terminé. Le catalogue public est à jour.' : 'Import terminé : réimportez les erreurs définitives ci-dessous.');
@@ -122,6 +139,7 @@ export default function AnimeSamaImport({ onClose, onImport, onRefresh, adminTok
   };
 
   const runBulkImport = async (kind) => {
+    automaticRetryDone.current = false;
     setBusy(true);
     setError('');
     setStatus('');
