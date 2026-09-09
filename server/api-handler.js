@@ -8,9 +8,9 @@ import { guardApiRequest } from './request-guard.js';
 const MAX_ATTEMPTS = 5;
 const WORKER_BATCH_SIZE = Math.max(
   1,
-  Number(process.env.IMPORT_WORKER_CONCURRENCY || (process.env.VERCEL ? 48 : 96))
+  Number(process.env.IMPORT_WORKER_CONCURRENCY || (process.env.VERCEL ? 64 : 128))
 );
-const WORKER_INTERVAL_MS = Math.max(1_000, Number(process.env.IMPORT_WORKER_INTERVAL_MS || 1_000));
+const WORKER_INTERVAL_MS = Math.max(250, Number(process.env.IMPORT_WORKER_INTERVAL_MS || 250));
 let workerStarted = false;
 let workerRunning = false;
 

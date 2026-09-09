@@ -8,7 +8,12 @@ const SOURCE_HOSTS = new Set(['anime-sama.to', 'anime-sama.org', 'anime-sama.tv'
 const REQUEST_TIMEOUT_MS = 25_000;
 const FETCH_ATTEMPTS = 3;
 const VERSION_PATHS = ['vostfr', 'vf', 'vo', 'vkr', 'va'];
-const VERSION_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_VERSION_CONCURRENCY || 8));
+const VERSION_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_VERSION_CONCURRENCY || 12));
+const CATALOGUE_PAGE_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_PAGE_CONCURRENCY || 16));
+const FETCH_CACHE_TTL_MS = 45_000;
+const FETCH_CACHE_LIMIT = 600;
+const responseCache = new Map();
+const inFlightRequests = new Map();
 
 const sendJson = (response, status, payload) => {
   response.statusCode = status;
@@ -62,7 +67,7 @@ async function mapWithConcurrency(items, concurrency, mapper) {
   return results;
 }
 
-async function fetchText(url) {
+async function fetchTextFromSource(url) {
   let lastError;
   for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt += 1) {
     const controller = new AbortController();
@@ -71,6 +76,7 @@ async function fetchText(url) {
       const response = await fetch(url, {
         headers: {
           Accept: 'text/html,application/javascript,text/javascript,*/*;q=0.8',
+          'Accept-Encoding': 'gzip, br',
           'User-Agent': 'Mozilla/5.0 (compatible; MozilanimImporter/1.1)'
         },
         signal: controller.signal
@@ -87,6 +93,28 @@ async function fetchText(url) {
     if (attempt < FETCH_ATTEMPTS) await wait(350 * (2 ** (attempt - 1)));
   }
   throw lastError;
+}
+
+async function fetchText(url) {
+  const key = String(url);
+  const now = Date.now();
+  const cached = responseCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    responseCache.delete(key);
+    responseCache.set(key, cached);
+    return cached.body;
+  }
+  if (inFlightRequests.has(key)) return inFlightRequests.get(key);
+
+  const request = fetchTextFromSource(url)
+    .then((body) => {
+      responseCache.set(key, { body, expiresAt: Date.now() + FETCH_CACHE_TTL_MS });
+      while (responseCache.size > FETCH_CACHE_LIMIT) responseCache.delete(responseCache.keys().next().value);
+      return body;
+    })
+    .finally(() => inFlightRequests.delete(key));
+  inFlightRequests.set(key, request);
+  return request;
 }
 
 function parseSearchResults(html, query, source) {
@@ -224,7 +252,7 @@ export async function fetchCatalogue(source) {
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(8, lastPage - 1) }, worker));
+  await Promise.all(Array.from({ length: Math.min(CATALOGUE_PAGE_CONCURRENCY, lastPage - 1) }, worker));
   return pages.filter(Boolean).flatMap((page) => extractCatalogueCards(page, source));
 }
 

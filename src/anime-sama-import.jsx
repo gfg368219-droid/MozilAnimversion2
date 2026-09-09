@@ -112,7 +112,7 @@ export default function AnimeSamaImport({ onClose, onImport, onRefresh, adminTok
       errors: job.errors || []
     });
     if (!['completed', 'completed_with_errors', 'failed'].includes(job.status)) {
-      window.setTimeout(() => watchJob(id).catch((watchError) => setError(watchError.message)), 2000);
+      window.setTimeout(() => watchJob(id).catch((watchError) => setError(watchError.message)), 750);
     } else {
       await onRefresh?.();
       setStatus(job.status === 'completed' ? 'Import terminé. Le catalogue public est à jour.' : 'Import terminé : réimportez les erreurs définitives ci-dessous.');
