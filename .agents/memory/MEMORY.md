@@ -4,3 +4,4 @@
 - [Import GitHub privé](github-import.md) — via le proxy GitHub, importer les fichiers de l’arborescence quand les endpoints d’archive sont bloqués.
 - [Lockfile npm de déploiement](deployment-npm-lock.md) — les URLs de paquets doivent rester publiques pour que le builder externe puisse installer les dépendances.
 - [Liens Anime-Sama](anime-sama-import-parsing.md) — ignorer les exemples commentés et sonder les chemins de versions sœurs, car la fiche principale peut en omettre.
+- [Headers de réponse Vercel](vercel-response-headers.md) — pour négocier gzip, conserver explicitement la requête car `response.req` peut être absent selon le runtime.

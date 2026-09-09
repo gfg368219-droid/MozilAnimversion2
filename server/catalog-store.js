@@ -5,9 +5,16 @@ const STATE_KEY = 'mozilanim:state';
 const DATA_DIR = process.env.MOZILANIM_DATA_DIR || path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'mozilanim.json');
 const hasKv = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+const STATE_CACHE_TTL_MS = Math.max(250, Number(process.env.MOZILANIM_STATE_CACHE_MS || 2_000));
 let writeQueue = Promise.resolve();
+let stateCache = null;
+let stateCacheAt = 0;
 
 const emptyState = () => ({ anime: [], jobs: [] });
+const normalizeState = (parsed) => ({
+  anime: Array.isArray(parsed?.anime) ? parsed.anime : [],
+  jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : []
+});
 
 async function readFileState() {
   try {
@@ -37,16 +44,16 @@ async function kvCommand(command) {
 }
 
 export async function readState() {
+  if (stateCache && Date.now() - stateCacheAt < STATE_CACHE_TTL_MS) return stateCache;
   if (hasKv) {
     const value = await kvCommand(['GET', STATE_KEY]);
-    if (!value) return emptyState();
-    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
-    return {
-      anime: Array.isArray(parsed.anime) ? parsed.anime : [],
-      jobs: Array.isArray(parsed.jobs) ? parsed.jobs : []
-    };
+    stateCache = value ? normalizeState(typeof value === 'string' ? JSON.parse(value) : value) : emptyState();
+    stateCacheAt = Date.now();
+    return stateCache;
   }
-  return readFileState();
+  stateCache = await readFileState();
+  stateCacheAt = Date.now();
+  return stateCache;
 }
 
 export async function writeState(state) {
@@ -56,12 +63,16 @@ export async function writeState(state) {
   };
   if (hasKv) {
     await kvCommand(['SET', STATE_KEY, JSON.stringify(normalized)]);
+    stateCache = normalized;
+    stateCacheAt = Date.now();
     return normalized;
   }
   await fs.mkdir(DATA_DIR, { recursive: true });
   const temporaryFile = `${DATA_FILE}.tmp`;
   await fs.writeFile(temporaryFile, JSON.stringify(normalized, null, 2));
   await fs.rename(temporaryFile, DATA_FILE);
+  stateCache = normalized;
+  stateCacheAt = Date.now();
   return normalized;
 }
 

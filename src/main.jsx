@@ -221,7 +221,7 @@ function App() {
 
   const refreshCatalog = async () => {
     try {
-      const response = await fetch('/api/catalog', { cache: 'no-store' });
+      const response = await fetch('/api/catalog');
       if (!response.ok) throw new Error('Catalogue indisponible');
       const payload = await response.json();
       if (Array.isArray(payload.anime)) setAnime(payload.anime);
@@ -233,8 +233,15 @@ function App() {
 
   useEffect(() => {
     refreshCatalog();
-    const timer = window.setInterval(refreshCatalog, 15_000);
-    return () => window.clearInterval(timer);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshCatalog();
+    };
+    const timer = window.setInterval(refreshWhenVisible, 60_000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, []);
 
   useEffect(() => {
@@ -384,10 +391,15 @@ function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime,
     const timer = window.setInterval(() => setToday(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-  const progressItems = anime.map((item) => {
+  const progressItems = useMemo(() => anime.map((item) => {
     const saved = progress[`${currentUser?.id || 'guest'}:${item.id}`];
     return saved ? { item, saved } : null;
-  }).filter((entry) => entry && entry.item.seasons.length);
+  }).filter((entry) => entry && entry.item.seasons.length), [anime, progress, currentUser?.id]);
+  const todayAnime = useMemo(() => anime.filter((item) => isToday(item, today)), [anime, today]);
+  const latestAnime = useMemo(() => [...anime]
+    .filter((item) => item.seasons?.some((season) => season.versions?.some((version) => allEpisodes(version).length)))
+    .sort((a, b) => Number(b.lastEpisodeAt || b.updatedAt || 0) - Number(a.lastEpisodeAt || a.updatedAt || 0))
+    .slice(0, 12), [anime]);
   const featured = featuredPool[featuredIndex] || anime[0];
   return (
     <div className="page home-page">
@@ -407,7 +419,7 @@ function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime,
             </div>;
           })}</div>
         </section>}
-        <ContentRail title="SORTIES DU JOUR" icon={<CalendarDays size={20} />} anime={anime.filter((item) => isToday(item, today))} openAnime={openAnime} emptyMessage="Aucune sortie aujourd’hui." /><ContentRail title="DERNIERS ÉPISODES AJOUTÉS" icon={<Layers3 size={20} />} anime={[...anime].filter((item) => item.seasons?.some((season) => season.versions?.some((version) => allEpisodes(version).length))).sort((a, b) => Number(b.lastEpisodeAt || b.updatedAt || 0) - Number(a.lastEpisodeAt || a.updatedAt || 0)).slice(0, 12)} openAnime={openAnime} compact emptyMessage="Aucun épisode récent." />
+         <ContentRail title="SORTIES DU JOUR" icon={<CalendarDays size={20} />} anime={todayAnime} openAnime={openAnime} emptyMessage="Aucune sortie aujourd’hui." /><ContentRail title="DERNIERS ÉPISODES AJOUTÉS" icon={<Layers3 size={20} />} anime={latestAnime} openAnime={openAnime} compact emptyMessage="Aucun épisode récent." />
       </>}
     </div>
   );
@@ -419,15 +431,21 @@ function ContentRail({ title, icon, anime, openAnime, compact = false, emptyMess
 
 function AnimeCard({ item, index, openAnime, compact }) {
   const badge = versionBadge(item);
-  return <button className={`anime-card ${compact ? 'card-compact' : ''}`} onClick={() => openAnime(item)}><div className="card-image" style={{ backgroundImage: `url(${item.poster})` }}><span className="card-type">{item.isStudio ? 'Studio' : 'Anime'}</span><span className="card-flag">{badge}</span><span className="card-overlay"><Play size={21} fill="currentColor" /></span></div><div className="card-body"><h3>{item.name}</h3><div className="card-meta"><span><Clock3 size={13} /> Publication</span><span><Tv size={13} /> {item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div></div></button>;
+  return <button className={`anime-card ${compact ? 'card-compact' : ''}`} onClick={() => openAnime(item)}><div className="card-image"><img src={item.poster} alt="" loading="lazy" decoding="async" /><span className="card-type">{item.isStudio ? 'Studio' : 'Anime'}</span><span className="card-flag">{badge}</span><span className="card-overlay"><Play size={21} fill="currentColor" /></span></div><div className="card-body"><h3>{item.name}</h3><div className="card-meta"><span><Clock3 size={13} /> Publication</span><span><Tv size={13} /> {item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div></div></button>;
 }
 
 function Catalog({ anime, openAnime }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('Tous');
+  const [page, setPage] = useState(0);
+  const pageSize = 48;
   const genres = ['Tous', 'Action', 'Aventure', 'Romance', 'Comédie', 'Fantastique', 'Sport'];
   const shown = useMemo(() => anime.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()) && (filter === 'Tous' || (item.genres || []).includes(filter))), [anime, query, filter]);
-  return <div className="page catalog-page"><div className="catalog-heading"><div><span className="eyebrow">MOZILANIM / CATALOGUE</span><h1>Le catalogue</h1><p>Retrouvez tous les anime ajoutés sur MOZILANIM.</p></div><div className="catalog-search"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un anime" /></div></div><div className="filter-row"><ListFilter size={16} /><span>Filtrer par genre</span>{genres.map((genre) => <button key={genre} className={filter === genre ? 'selected' : ''} onClick={() => setFilter(genre)}>{genre}</button>)}</div><div className="catalog-grid">{shown.map((item, index) => <AnimeCard key={item.id} item={item} index={index} openAnime={openAnime} />)}</div>{!shown.length && <div className="empty-state"><Search size={28} /><h3>Aucun anime trouvé</h3><p>Essayez un autre titre ou retirez le filtre sélectionné.</p></div>}</div>;
+  useEffect(() => setPage(0), [query, filter]);
+  const pageCount = Math.ceil(shown.length / pageSize);
+  const safePage = Math.min(page, Math.max(pageCount - 1, 0));
+  const visibleAnime = shown.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  return <div className="page catalog-page"><div className="catalog-heading"><div><span className="eyebrow">MOZILANIM / CATALOGUE</span><h1>Le catalogue</h1><p>{shown.length} anime disponible{shown.length > 1 ? 's' : ''} sur MOZILANIM.</p></div><div className="catalog-search"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un anime" /></div></div><div className="filter-row"><ListFilter size={16} /><span>Filtrer par genre</span>{genres.map((genre) => <button key={genre} className={filter === genre ? 'selected' : ''} onClick={() => setFilter(genre)}>{genre}</button>)}</div><div className="catalog-grid">{visibleAnime.map((item, index) => <AnimeCard key={item.id} item={item} index={index} openAnime={openAnime} />)}</div>{pageCount > 1 && <div className="catalog-pagination"><button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}><ChevronLeft size={16} /> Précédent</button><span>Page {safePage + 1} / {pageCount}</span><button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>Suivant <ChevronRight size={16} /></button></div>}{!shown.length && <div className="empty-state"><Search size={28} /><h3>Aucun anime trouvé</h3><p>Essayez un autre titre ou retirez le filtre sélectionné.</p></div>}</div>;
 }
 
 function Planning({ anime, openAnime }) {
@@ -438,12 +456,16 @@ function Planning({ anime, openAnime }) {
     return () => window.clearInterval(timer);
   }, []);
   const days = [1, 2, 3, 4, 5, 6, 0];
-  const entries = anime.map((item) => ({
+  const entries = useMemo(() => anime.map((item) => ({
     item,
     day: item.schedule?.day ?? dayFromDate(item.schedule?.date),
     time: item.schedule?.time || '18:00',
     season: item.seasons.find((season) => season.id === item.schedule?.seasonId) || item.seasons.at(-1)
-  })).filter((entry) => (entry.item.schedule?.date || entry.item.schedule?.day !== undefined) && entry.day !== null && entry.season && (filter === 'Tous' || filter === 'Anime'));
+  })).filter((entry) => (entry.item.schedule?.date || entry.item.schedule?.day !== undefined) && entry.day !== null && entry.season && (filter === 'Tous' || filter === 'Anime')), [anime, filter]);
+  const entriesByDay = useMemo(() => entries.reduce((groups, entry) => {
+    (groups[entry.day] ||= []).push(entry);
+    return groups;
+  }, {}), [entries]);
   const monday = new Date(now);
   const currentDay = monday.getDay() || 7;
   monday.setDate(monday.getDate() - currentDay + 1);
@@ -457,7 +479,7 @@ function Planning({ anime, openAnime }) {
     <div className="planning-notice"><CalendarDays size={18} /><span>Les sorties sont regroupées par journée et le planning se met à jour automatiquement.</span></div>
     <div className="planning-clock"><Clock3 size={22} /><strong>{now.toLocaleTimeString('fr-FR')}</strong><span>heure locale</span></div>
     <div className="planning-toolbar"><strong>FILTRER :</strong><button className={filter === 'Tous' ? 'selected' : ''} onClick={() => setFilter('Tous')}>TOUS</button><button className={filter === 'Anime' ? 'selected' : ''} onClick={() => setFilter('Anime')}><Tv size={14} /> ANIMES</button></div>
-    <div className="planning-week">{days.map((day) => <section className={`planning-day ${day === (now.getDay()) ? 'today' : ''}`} key={day}><header><h2>{DAYS[day].toUpperCase()}</h2><span>{dateLabel(day)}</span></header><div className="planning-day-list">{entries.filter((entry) => entry.day === day).map((entry) => <button className="planning-card" key={entry.item.id} onClick={() => openAnime(entry.item)}><div className="planning-poster" style={{ backgroundImage: `url(${entry.item.poster})` }} /><div className="planning-card-copy"><strong>{entry.item.name}</strong><span><Clock3 size={12} /> {entry.time}</span><small>{entry.season.name}</small></div></button>)}{!entries.some((entry) => entry.day === day) && <div className="planning-empty">Aucune sortie</div>}</div></section>)}</div>
+    <div className="planning-week">{days.map((day) => <section className={`planning-day ${day === (now.getDay()) ? 'today' : ''}`} key={day}><header><h2>{DAYS[day].toUpperCase()}</h2><span>{dateLabel(day)}</span></header><div className="planning-day-list">{(entriesByDay[day] || []).map((entry) => <button className="planning-card" key={entry.item.id} onClick={() => openAnime(entry.item)}><div className="planning-poster"><img src={entry.item.poster} alt="" loading="lazy" decoding="async" /></div><div className="planning-card-copy"><strong>{entry.item.name}</strong><span><Clock3 size={12} /> {entry.time}</span><small>{entry.season.name}</small></div></button>)}{!(entriesByDay[day] || []).length && <div className="planning-empty">Aucune sortie</div>}</div></section>)}</div>
   </div>;
 }
 

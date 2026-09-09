@@ -84,7 +84,8 @@ h1, h2, h3, p { margin: 0; }
 .anime-rail { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 24px; padding: 8px 0; background: rgba(7, 16, 29, .67); }
 .anime-card { min-width: 0; background: #091322; border: 1px solid #172941; padding: 0; border-radius: 6px; overflow: hidden; text-align: left; color: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.2); transition: transform .2s ease, border-color .2s ease; }
 .anime-card:hover { transform: translateY(-3px); border-color: #3789ed; }
-.card-image { height: 120px; position: relative; background-size: cover; background-position: center; }
+.card-image { height: 120px; position: relative; overflow: hidden; background: #101e31; }
+.card-image img, .planning-poster img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .card-image::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(4, 13, 26, .84), transparent 57%); }
 .card-type, .card-flag { position: absolute; z-index: 1; top: 8px; background: rgba(35, 68, 106, .88); border: 1px solid rgba(145, 190, 239, .34); border-radius: 4px; padding: 5px 8px; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 .card-type { left: 8px; }.card-flag { right: 8px; display: inline-flex; align-items: center; gap: 4px; color: #0e1a29; background: rgba(245, 247, 250, .94); }.card-flag span { font-size: 13px; line-height: 1; }.card-flag b { color: #0e1a29; font-size: 9px; }
@@ -313,6 +314,11 @@ footer { position: relative; border-top: 1px solid #152334; background: #04090f;
 .planning-card-copy span { justify-content: center; padding: 7px 4px; color: #8ed0ff; background: #102b4a; border-radius: 4px; font-weight: 800; }
 .planning-card-copy small { color: #8da1b6; }
 .planning-empty { padding: 45px 5px; color: #506176; font-size: 10px; text-align: center; }
+.catalog-grid .anime-card { content-visibility: auto; contain-intrinsic-size: 220px 290px; }
+.catalog-pagination { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 26px; color: #8fa2b8; font-size: 12px; font-weight: 700; }
+.catalog-pagination button { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; color: #b9d8f8; background: #0b1d31; border: 1px solid #294867; border-radius: 5px; font-size: 11px; font-weight: 800; }
+.catalog-pagination button:hover:not(:disabled) { color: #fff; background: #12375c; }
+.catalog-pagination button:disabled { opacity: .4; }
 .rail-empty { min-height: 90px; display: grid; place-items: center; padding: 20px; color: #718196; border: 1px dashed #1d3550; background: rgba(7, 16, 29, .67); font-size: 12px; }
 
 /* Statistiques et aperçu de candidature */

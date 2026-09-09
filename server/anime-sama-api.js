@@ -1,4 +1,5 @@
 import { URL } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import { isAdminRequest } from './admin-auth.js';
 import { guardApiRequest } from './request-guard.js';
 
@@ -12,7 +13,17 @@ const VERSION_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_VERSION_CONCUR
 const sendJson = (response, status, payload) => {
   response.statusCode = status;
   response.setHeader('Content-Type', 'application/json; charset=utf-8');
-  response.end(JSON.stringify(payload));
+  const body = Buffer.from(JSON.stringify(payload));
+  if (body.length > 1024 && /\bgzip\b/i.test(String(response.req?.headers?.['accept-encoding'] || ''))) {
+    response.setHeader('Content-Encoding', 'gzip');
+    response.setHeader('Vary', 'Accept-Encoding');
+    const compressed = gzipSync(body);
+    response.setHeader('Content-Length', compressed.length);
+    response.end(compressed);
+    return;
+  }
+  response.setHeader('Content-Length', body.length);
+  response.end(body);
 };
 
 const htmlDecode = (value = '') => value
@@ -345,6 +356,7 @@ export async function importAnime(query, directUrl) {
 
 export async function handleAnimeSamaRequest(request, response, requestUrl = new URL(request.url || '/', 'http://localhost')) {
   try {
+    if (!response.req) response.req = request;
     if (guardApiRequest(request, response)) return;
     if (requestUrl.pathname === '/api/anime-sama/search') {
       const query = requestUrl.searchParams.get('q')?.trim();

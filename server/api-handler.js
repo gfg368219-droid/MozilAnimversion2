@@ -1,4 +1,5 @@
 import { URL } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import { fetchCatalogue, fetchPlanning, importAnime } from './anime-sama-api.js';
 import { checkAdminCredentials, createAdminToken, isAdminRequest } from './admin-auth.js';
 import { readState, storageDescription, updateState } from './catalog-store.js';
@@ -13,11 +14,21 @@ const WORKER_INTERVAL_MS = Math.max(1_000, Number(process.env.IMPORT_WORKER_INTE
 let workerStarted = false;
 let workerRunning = false;
 
-const sendJson = (response, status, payload) => {
+const sendJson = (response, status, payload, options = {}) => {
   response.statusCode = status;
   response.setHeader('Content-Type', 'application/json; charset=utf-8');
-  response.setHeader('Cache-Control', 'no-store');
-  response.end(JSON.stringify(payload));
+  response.setHeader('Cache-Control', options.cacheControl || 'no-store');
+  const body = Buffer.from(JSON.stringify(payload));
+  if (body.length > 1024 && /\bgzip\b/i.test(String(response.req?.headers?.['accept-encoding'] || ''))) {
+    response.setHeader('Content-Encoding', 'gzip');
+    response.setHeader('Vary', 'Accept-Encoding');
+    const compressed = gzipSync(body);
+    response.setHeader('Content-Length', compressed.length);
+    response.end(compressed);
+    return;
+  }
+  response.setHeader('Content-Length', body.length);
+  response.end(body);
 };
 
 async function readJson(request) {
@@ -249,7 +260,9 @@ export function startImportWorker() {
 async function handleCatalog(request, response) {
   if (request.method === 'GET') {
     const state = await readState();
-    return sendJson(response, 200, { anime: state.anime, storage: storageDescription() });
+    return sendJson(response, 200, { anime: state.anime, storage: storageDescription() }, {
+      cacheControl: 'public, max-age=5, stale-while-revalidate=30'
+    });
   }
   if (request.method === 'PUT') {
     if (!isAdminRequest(request)) return sendJson(response, 401, { error: 'Session administrateur requise.' });
@@ -334,6 +347,9 @@ async function handleJobs(request, response, pathname) {
 
 export async function handleApiRequest(request, response, requestUrl = new URL(request.url || '/', 'http://localhost')) {
   try {
+    // Vercel's response object does not always expose the originating request.
+    // Keep the header available to the shared JSON writer for compression.
+    if (!response.req) response.req = request;
     if (guardApiRequest(request, response)) return;
     if (requestUrl.pathname === '/api/admin/session' && request.method === 'POST') {
       const body = await readJson(request);
