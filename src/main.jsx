@@ -198,6 +198,8 @@ function App() {
   const [selectedReader, setSelectedReader] = useState(0);
   const [episodeIndex, setEpisodeIndex] = useState(0);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState('');
   const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem('mozilanim-admin-token') || '');
   const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('mozilanim-admin') === 'true' && Boolean(sessionStorage.getItem('mozilanim-admin-token')));
   const [currentUser, setCurrentUser] = useState(() => {
@@ -231,13 +233,18 @@ function App() {
 
   const refreshCatalog = async () => {
     try {
-      const response = await fetch('/api/catalog');
-      if (!response.ok) throw new Error('Catalogue indisponible');
+      setCatalogError('');
+      const response = await fetch('/api/catalog', { cache: 'no-store' });
       const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Catalogue indisponible');
+      if (!Array.isArray(payload.anime)) throw new Error('Réponse catalogue invalide');
       if (Array.isArray(payload.anime)) setAnime(payload.anime);
       setCatalogLoaded(true);
-    } catch {
+    } catch (error) {
+      setCatalogError(error.message || 'Le catalogue est momentanément indisponible.');
       // Le cache local permet de continuer à consulter le site si l'API est momentanément indisponible.
+    } finally {
+      setCatalogLoading(false);
     }
   };
 
@@ -346,10 +353,10 @@ function App() {
     <div className="app-shell">
       <Header view={view} go={go} isAdmin={isAdmin} currentUser={currentUser} onLogin={() => { setLoginMode('login'); setLoginOpen(true); }} logout={logout} mobileMenu={mobileMenu} setMobileMenu={setMobileMenu} />
       <main>
-        {view === 'home' && <Home anime={anime} progress={progress} currentUser={currentUser} openAnime={openAnime} openWatch={openWatch} resumeAnime={resumeAnime} setProgress={setProgress} go={go} />}
+        {view === 'home' && <Home anime={anime} progress={progress} currentUser={currentUser} openAnime={openAnime} openWatch={openWatch} resumeAnime={resumeAnime} setProgress={setProgress} go={go} catalogLoading={catalogLoading} catalogError={catalogError} refreshCatalog={refreshCatalog} />}
         {view === 'login' && <AccountPage mode="login" users={users} onUserSuccess={onLogin} onAdminSuccess={(token) => { setAdminToken(token); setIsAdmin(true); sessionStorage.setItem('mozilanim-admin', 'true'); sessionStorage.setItem('mozilanim-admin-token', token); go('admin'); }} onRegister={() => go('register')} onBack={() => go('home')} />}
         {view === 'register' && <AccountPage mode="register" users={users} setUsers={setUsers} onUserSuccess={onLogin} onLogin={() => go('login')} onBack={() => go('home')} />}
-        {view === 'catalog' && <Catalog anime={anime} openAnime={openAnime} />}
+        {view === 'catalog' && <Catalog anime={anime} openAnime={openAnime} catalogLoading={catalogLoading} catalogError={catalogError} refreshCatalog={refreshCatalog} />}
         {view === 'detail' && selectedAnime && <Detail item={selectedAnime} openWatch={openWatch} go={go} stats={stats} currentUser={currentUser} toggleLike={toggleLike} />}
         {view === 'watch' && selectedAnime && selectedSeason && selectedVersion && <Watch item={selectedAnime} season={selectedSeason} version={selectedVersion} readerIndex={selectedReader} setReaderIndex={setSelectedReader} episodeIndex={episodeIndex} setEpisodeIndex={setEpisodeIndex} onProgress={saveProgress} currentUser={currentUser} go={go} />}
         {view === 'planning' && <Planning anime={anime} openAnime={openAnime} />}
@@ -383,7 +390,7 @@ function Header({ view, go, isAdmin, currentUser, onLogin, logout, mobileMenu, s
   );
 }
 
-function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime, setProgress, go }) {
+function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime, setProgress, go, catalogLoading, catalogError, refreshCatalog }) {
   const [featuredPool, setFeaturedPool] = useState([]);
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [today, setToday] = useState(new Date());
@@ -413,7 +420,7 @@ function Home({ anime, progress, currentUser, openAnime, openWatch, resumeAnime,
   const featured = featuredPool[featuredIndex] || anime[0];
   return (
     <div className="page home-page">
-      {!featured ? <div className="empty-home"><section className="empty-home-card"><div className="empty-home-icon"><Film size={30} /></div><span className="eyebrow">MOZILANIM / CATALOGUE VIDE</span><h1>Votre catalogue commence ici</h1><p>Aucun anime de démonstration n’est installé. Connectez-vous à l’administration pour publier un projet.</p><div className="empty-home-actions"><button className="primary-button" onClick={() => go('admin')}><ShieldCheck size={16} /> OUVRIR L’ADMINISTRATION</button></div></section></div> : <>
+       {!featured ? <div className="empty-home"><section className="empty-home-card"><div className="empty-home-icon"><Film size={30} /></div>{catalogLoading ? <><span className="eyebrow">MOZILANIM / CHARGEMENT</span><h1>Chargement du catalogue</h1><p>Les anime publiés sont en cours de récupération.</p></> : catalogError ? <><span className="eyebrow">MOZILANIM / ERREUR</span><h1>Le catalogue ne répond pas</h1><p>{catalogError}</p><div className="empty-home-actions"><button className="primary-button" onClick={refreshCatalog}><Film size={16} /> RÉESSAYER</button></div></> : <><span className="eyebrow">MOZILANIM / CATALOGUE VIDE</span><h1>Votre catalogue commence ici</h1><p>Aucun anime n’est encore publié. Connectez-vous à l’administration pour importer un projet.</p><div className="empty-home-actions"><button className="primary-button" onClick={() => go('admin')}><ShieldCheck size={16} /> OUVRIR L’ADMINISTRATION</button></div></>}</section></div> : <>
         <section className="hero-wrap"><div className="hero" style={{ backgroundImage: `url(${featured.backdrop || featured.poster})` }}><div className="hero-shade" /><div className="hero-content"><span className="status-pill">ANIME</span><h1>{featured.name.toUpperCase()}</h1><div className="tag-row">{(featured.genres || []).map((genre) => <span key={genre}>{genre}</span>)}</div>{featured.isStudio && <p>{featured.description}</p>}<div className="hero-actions"><button className="primary-button" onClick={() => featured.seasons[0] && openWatch(featured, featured.seasons[0], featured.seasons[0].versions[0])}><Play size={14} fill="currentColor" /> VISIONNER</button></div></div><div className="hero-dots">{featuredPool.map((item, index) => <button key={item.id} className={index === featuredIndex ? 'selected' : ''} onClick={() => setFeaturedIndex(index)} aria-label={`Afficher ${item.name}`} />)}</div></div></section>
         {progressItems.length > 0 && <section className="resume-section">
           <div className="resume-heading"><h2><Clock3 size={20} /> REPRENEZ VOTRE VISIONNAGE</h2><div className="resume-line" /></div>
@@ -444,7 +451,7 @@ function AnimeCard({ item, index, openAnime, compact }) {
   return <button className={`anime-card ${compact ? 'card-compact' : ''}`} onClick={() => openAnime(item)}><div className="card-image"><img src={item.poster} alt="" loading="lazy" decoding="async" /><span className="card-type">{item.isStudio ? 'Studio' : 'Anime'}</span><span className="card-flag">{badge}</span><span className="card-overlay"><Play size={21} fill="currentColor" /></span></div><div className="card-body"><h3>{item.name}</h3><div className="card-meta"><span><Clock3 size={13} /> Publication</span><span><Tv size={13} /> {item.seasons.length} saison{item.seasons.length > 1 ? 's' : ''}</span></div></div></button>;
 }
 
-function Catalog({ anime, openAnime }) {
+function Catalog({ anime, openAnime, catalogLoading, catalogError, refreshCatalog }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('Tous');
   const [page, setPage] = useState(0);
@@ -455,7 +462,7 @@ function Catalog({ anime, openAnime }) {
   const pageCount = Math.ceil(shown.length / pageSize);
   const safePage = Math.min(page, Math.max(pageCount - 1, 0));
   const visibleAnime = shown.slice(safePage * pageSize, (safePage + 1) * pageSize);
-  return <div className="page catalog-page"><div className="catalog-heading"><div><span className="eyebrow">MOZILANIM / CATALOGUE</span><h1>Le catalogue</h1><p>{shown.length} anime disponible{shown.length > 1 ? 's' : ''} sur MOZILANIM.</p></div><div className="catalog-search"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un anime" /></div></div><div className="filter-row"><ListFilter size={16} /><span>Filtrer par genre</span>{genres.map((genre) => <button key={genre} className={filter === genre ? 'selected' : ''} onClick={() => setFilter(genre)}>{genre}</button>)}</div><div className="catalog-grid">{visibleAnime.map((item, index) => <AnimeCard key={item.id} item={item} index={index} openAnime={openAnime} />)}</div>{pageCount > 1 && <div className="catalog-pagination"><button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}><ChevronLeft size={16} /> Précédent</button><span>Page {safePage + 1} / {pageCount}</span><button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>Suivant <ChevronRight size={16} /></button></div>}{!shown.length && <div className="empty-state"><Search size={28} /><h3>Aucun anime trouvé</h3><p>Essayez un autre titre ou retirez le filtre sélectionné.</p></div>}</div>;
+  return <div className="page catalog-page"><div className="catalog-heading"><div><span className="eyebrow">MOZILANIM / CATALOGUE</span><h1>Le catalogue</h1><p>{shown.length} anime disponible{shown.length > 1 ? 's' : ''} sur MOZILANIM.</p></div><div className="catalog-search"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un anime" /></div></div><div className="filter-row"><ListFilter size={16} /><span>Filtrer par genre</span>{genres.map((genre) => <button key={genre} className={filter === genre ? 'selected' : ''} onClick={() => setFilter(genre)}>{genre}</button>)}</div><div className="catalog-grid">{visibleAnime.map((item, index) => <AnimeCard key={item.id} item={item} index={index} openAnime={openAnime} />)}</div>{pageCount > 1 && <div className="catalog-pagination"><button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}><ChevronLeft size={16} /> Précédent</button><span>Page {safePage + 1} / {pageCount}</span><button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>Suivant <ChevronRight size={16} /></button></div>}{!shown.length && catalogLoading && <div className="empty-state"><Film size={28} /><h3>Chargement du catalogue</h3><p>Les anime publiés sont en cours de récupération.</p></div>}{!shown.length && !catalogLoading && catalogError && <div className="empty-state"><Info size={28} /><h3>Catalogue indisponible</h3><p>{catalogError}</p><button className="primary-button" onClick={refreshCatalog}>RÉESSAYER</button></div>}{!shown.length && !catalogLoading && !catalogError && <div className="empty-state"><Search size={28} /><h3>Aucun anime trouvé</h3><p>Essayez un autre titre ou retirez le filtre sélectionné.</p></div>}</div>;
 }
 
 function Planning({ anime, openAnime }) {
