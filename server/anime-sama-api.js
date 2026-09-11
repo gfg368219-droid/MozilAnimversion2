@@ -418,14 +418,17 @@ export async function handleAnimeSamaRequest(request, response, requestUrl = new
 }
 
 export function animeSamaApiPlugin() {
+  const attach = (server) => {
+    server.middlewares.use(async (request, response, next) => {
+      const requestUrl = new URL(request.url || '/', 'http://localhost');
+      if (!requestUrl.pathname.startsWith('/api/anime-sama/')) return next();
+      return handleAnimeSamaRequest(request, response, requestUrl);
+    });
+  };
+
   return {
     name: 'mozilanim-anime-sama-api',
-    configureServer(server) {
-      server.middlewares.use(async (request, response, next) => {
-        const requestUrl = new URL(request.url || '/', 'http://localhost');
-        if (!requestUrl.pathname.startsWith('/api/anime-sama/')) return next();
-        return handleAnimeSamaRequest(request, response, requestUrl);
-      });
-    }
+    configureServer: attach,
+    configurePreviewServer: attach
   };
 }

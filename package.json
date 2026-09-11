@@ -3,11 +3,12 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "packageManager": "npm@11.6.2",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port ${PORT:-5000} --strictPort",
-    "start": "vite --host 0.0.0.0 --port ${PORT:-5000} --strictPort",
+    "start": "vite preview --host 0.0.0.0 --port ${PORT:-5000} --strictPort",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 5000"
+    "preview": "vite preview --host 0.0.0.0 --port ${PORT:-5000} --strictPort"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.1",
